@@ -1,10 +1,12 @@
+PYTHON := uv run python
+
 .PHONY: install
 install:
-	pip install -e .
+	uv sync
 
 .PHONY: install-dev
 install-dev:
-	pip install -e .[dev]
+	uv sync --extra dev
 	pre-commit install
 
 .PHONY: type
@@ -23,8 +25,24 @@ check:
 
 .PHONY: test
 test:
-	python -m pytest tests/
+	$(PYTHON) -m pytest tests/
 
 .PHONY: test-all
 test-all:
-	python -m pytest tests/ --runslow
+	$(PYTHON) -m pytest tests/ --runslow
+
+.PHONY: exp-tms-train
+exp-tms-train:
+	$(PYTHON) spd/experiments/tms/train_tms.py
+
+.PHONY: exp-tms-decomp
+exp-tms-decomp:
+	$(PYTHON) spd/experiments/tms/tms_decomposition.py spd/experiments/tms/tms_config.yaml
+
+.PHONY: exp-tms
+exp-tms: exp-tms-train exp-tms-decomp
+	@echo "train and then decompose TMS model"
+
+.PHONY: exp-lm
+exp-lm:
+	$(PYTHON) spd/experiments/lm/lm_decomposition.py spd/experiments/lm/ts_config.yaml
