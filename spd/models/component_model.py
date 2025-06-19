@@ -63,7 +63,9 @@ class ComponentModel(nn.Module):
             gate_kwargs["n_gate_hidden_neurons"] = n_gate_hidden_neurons
 
         # TODO: unsure how to type hint this properly
-        self.gates: dict[str, AnyGate] = nn.ModuleDict({name: gate_class(**gate_kwargs) for name in self.components}) # type: ignore
+        self.gates: dict[str, AnyGate] = nn.ModuleDict(
+            {name: gate_class(**gate_kwargs) for name in self.components}
+        )  # type: ignore
 
     def create_target_components(self, target_module_patterns: list[str], m: int) -> nn.ModuleDict:
         """Create target components for the model."""

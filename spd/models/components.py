@@ -1,4 +1,3 @@
-from typing import Union
 import einops
 import torch
 from jaxtyping import Float
