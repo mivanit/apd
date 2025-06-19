@@ -14,6 +14,7 @@ from wandb.apis.public import Run
 
 from spd.configs import Config
 from spd.models.components import (
+    AnyGate,
     EmbeddingComponent,
     Gate,
     GateMLP,
@@ -56,12 +57,13 @@ class ComponentModel(nn.Module):
         )
 
         # Use GateMLP if n_gate_hidden_neurons is provided, otherwise use Gate
-        gate_class = GateMLP if n_gate_hidden_neurons is not None else Gate
-        gate_kwargs = {"m": m}
+        gate_class: type[AnyGate] = GateMLP if n_gate_hidden_neurons is not None else Gate
+        gate_kwargs: dict[str, int] = {"m": m}
         if n_gate_hidden_neurons is not None:
             gate_kwargs["n_gate_hidden_neurons"] = n_gate_hidden_neurons
 
-        self.gates = nn.ModuleDict({name: gate_class(**gate_kwargs) for name in self.components})
+        # TODO: unsure how to type hint this properly
+        self.gates: dict[str, AnyGate] = nn.ModuleDict({name: gate_class(**gate_kwargs) for name in self.components}) # type: ignore
 
     def create_target_components(self, target_module_patterns: list[str], m: int) -> nn.ModuleDict:
         """Create target components for the model."""

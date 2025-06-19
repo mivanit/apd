@@ -1,3 +1,4 @@
+from typing import Union
 import einops
 import torch
 from jaxtyping import Float
@@ -177,3 +178,9 @@ class EmbeddingComponent(nn.Module):
             component_acts, self.B, "batch pos m, ... m embedding_dim -> batch pos embedding_dim"
         )
         return out
+
+
+# TODO: would be cleaner to call this just "Component" and "Gate" but the latter is taken
+# TODO: would be cleaner for this to be done via inheritance
+AnyComponent = LinearComponent | EmbeddingComponent
+AnyGate = GateMLP | Gate
