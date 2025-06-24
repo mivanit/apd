@@ -49,7 +49,12 @@ line-length = 100
 fix = true
 ignore = [
     "F722", # Incompatible with jaxtyping
-    "E731" # I think lambda functions are fine in several places
+    "E731", # I think lambda functions are fine in several places
+]
+
+[tool.ruff.per-file-ignores]
+"notebooks/**" = [
+    "E501", # Ignore line length in notebooks
 ]
 
 [tool.ruff.lint]
