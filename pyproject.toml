@@ -24,6 +24,8 @@ dependencies = [
     "streamlit",
     "streamlit-antd-components",
     "datasets",
+    # added
+    "muutils",
 ]
 
 [project.optional-dependencies]

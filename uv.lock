@@ -1089,6 +1089,15 @@ wheels = [
 ]
 
 [[package]]
+name = "muutils"
+version = "0.8.10"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8b/a1/a35e5eefd361a8b4d45443c82b0efe96e86d6e0adcc9f43cca35eebbcd08/muutils-0.8.10.tar.gz", hash = "sha256:a91536af88987bc8c82a9bdb3a79e60eb0b927270ed9638b9ae71016ebe99f91", size = 3018884, upload-time = "2025-06-06T17:30:24.105Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/27/694b68bae720089fc1b68889d73716ab52c236b0e3713debbc72e6499cb8/muutils-0.8.10-py3-none-any.whl", hash = "sha256:71ab76071b496251520da0368cc5ff947667f64bb2af2907c0a44b09c82896e1", size = 122997, upload-time = "2025-06-06T17:30:21.411Z" },
+]
+
+[[package]]
 name = "narwhals"
 version = "1.43.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2201,6 +2210,7 @@ dependencies = [
     { name = "ipykernel" },
     { name = "jaxtyping" },
     { name = "matplotlib" },
+    { name = "muutils" },
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pytest" },
@@ -2230,6 +2240,7 @@ requires-dist = [
     { name = "ipykernel" },
     { name = "jaxtyping" },
     { name = "matplotlib", specifier = "==3.9.1" },
+    { name = "muutils" },
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pyright", marker = "extra == 'dev'" },

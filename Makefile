@@ -34,7 +34,7 @@ test-all:
 .PHONY: exp-tms-train
 exp-tms-train:
 	$(PYTHON) spd/experiments/tms/train_tms.py
-
+	
 .PHONY: exp-tms-decomp
 exp-tms-decomp:
 	$(PYTHON) spd/experiments/tms/tms_decomposition.py spd/experiments/tms/tms_config.yaml
@@ -45,4 +45,4 @@ exp-tms: exp-tms-train exp-tms-decomp
 
 .PHONY: exp-lm
 exp-lm:
-	$(PYTHON) spd/experiments/lm/lm_decomposition.py spd/experiments/lm/ts_config.yaml
+	$(PYTHON) spd/experiments/lm/lm_decomposition.py spd/experiments/lm/ts_config.yaml --weights-only=False
