@@ -39,6 +39,18 @@ exp-tms-train:
 exp-tms-decomp:
 	$(PYTHON) spd/experiments/tms/tms_decomposition.py spd/experiments/tms/tms_config.yaml
 
+.PHONY: exp-mlp-train
+exp-mlp-train:
+	$(PYTHON) spd/experiments/resid_mlp/train_resid_mlp.py
+
+.PHONY: exp-mlp-decomp
+exp-mlp-decomp:
+	$(PYTHON) spd/experiments/resid_mlp/resid_mlp_decomposition.py spd/experiments/resid_mlp/resid_mlp_config.yaml
+
+.PHONY: exp-mlp
+exp-mlp: exp-mlp-train exp-mlp-decomp
+	@echo "train and then decompose MLP model"
+
 .PHONY: exp-tms
 exp-tms: exp-tms-train exp-tms-decomp
 	@echo "train and then decompose TMS model"
