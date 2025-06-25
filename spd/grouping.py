@@ -1,5 +1,6 @@
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -37,6 +38,24 @@ def calc_jaccard_index(
     return jaccard_index
 
 
+CoactivationResults = dict[
+    str,  # group key
+    dict[
+        Literal[
+            "co_occurrence_matrix",
+            "marginal_counts",
+            "module_slices",
+            "modules",
+            "labels",
+            "total_samples",
+            "activation_threshold",
+            "jaccard",
+        ],
+        Any,
+    ],
+]
+
+
 @torch.no_grad()
 def collect_coactivations(
     comp_model: ComponentModel,
@@ -56,19 +75,21 @@ def collect_coactivations(
     }
 
     # Build module_slices for each group
-    results = {}
+    results: CoactivationResults = {}
     for group_idx, modules in enumerate(module_groups):
         # Calculate total components and slices within group
-        group_total_m = sum(
+        group_total_m: int = sum(
             components[mod].m for mod in modules
         )  # FIXED: no need to convert, already dots
-        co_matrix = torch.zeros(group_total_m, group_total_m, device=device)
-        marginals = torch.zeros(group_total_m, device=device)
+        co_matrix: Float[Tensor, "group_total_m group_total_m"] = torch.zeros(
+            group_total_m, group_total_m, device=device
+        )
+        marginals: Float[Tensor, " group_total_m"] = torch.zeros(group_total_m, device=device)
 
         # Build slice mapping
-        module_slices = {}
-        start_idx = 0
-        labels = []
+        module_slices: dict[str, slice] = {}
+        start_idx: int = 0
+        labels: list[str] = []
         for mod in modules:
             m = components[mod].m  # FIXED: use mod directly
             module_slices[mod] = slice(start_idx, start_idx + m)
@@ -83,8 +104,8 @@ def collect_coactivations(
             "labels": np.array(labels),  # Store labels for each component in the group
         }
     # Data processing loop - exact same pattern as optimize()
-    samples_processed = 0
-    data_iter = iter(data_loader)
+    samples_processed: int = 0
+    data_iter: Iterable[Any] = iter(data_loader)
 
     with tqdm(total=n_samples, desc="Collecting coactivations", unit="samples") as pbar:
         while samples_processed < n_samples:
@@ -127,12 +148,14 @@ def collect_coactivations(
             batch_size = batch.size(0)
             samples_processed += batch_size
             pbar.update(batch_size)
+
     # Add metadata.additoinal_metrics
     for group_key in results:
         results[group_key]["total_samples"] = samples_processed
         results[group_key]["activation_threshold"] = activation_threshold
         results[group_key]["jaccard"] = calc_jaccard_index(
-            results[group_key]["co_occurrence_matrix"], results[group_key]["marginal_counts"]
+            co_occurrence_matrix=results[group_key]["co_occurrence_matrix"],
+            marginal_counts=results[group_key]["marginal_counts"],
         )
 
     return results
@@ -140,14 +163,18 @@ def collect_coactivations(
 
 def plot_hierarchical_clustering(
     similarity_matrix: Float[Tensor, "n n"],
-    labels=None,
-    threshold=0.5,
-    criterion="distance",
-    linkage_method="average",
-    figsize=(12, 6),
-    cmap="tab20",
-    title=None,
-):
+    labels: Sequence[str] | None = None,
+    threshold: float = 0.5,
+    criterion: Literal["distance", "maxclust"] = "distance",
+    linkage_method: Literal["single", "complete", "average", "ward"] = "average",
+    figsize: tuple[int, int] = (12, 6),
+    cmap: str = "tab20",
+    title: str | None = None,
+) -> tuple[
+    plt.Figure,
+    Int[np.ndarray, " n"],  # Cluster assignments for each element
+    Float[np.ndarray, "n n"],  # Hierarchical clustering linkage matrix
+]:
     """
     Create a hierarchical clustering dendrogram with optional ground truth labels.
 
@@ -218,11 +245,11 @@ def plot_hierarchical_clustering(
     # Add color bar if labels provided
     if labels is not None:
         # Get leaf order and create color mapping
-        leaves_order = dend["leaves"]
-        ordered_labels = [labels[i] for i in leaves_order]
-        unique_labels = list(np.unique(labels))
-        label_to_idx = {label: i for i, label in enumerate(unique_labels)}
-        color_indices = [label_to_idx[label] for label in ordered_labels]
+        leaves_order: Sequence[int] = dend["leaves"]
+        ordered_labels: list[str] = [labels[i] for i in leaves_order]
+        unique_labels: list[str] = list(np.unique(labels))
+        label_to_idx: dict[str, int] = {label: i for i, label in enumerate(unique_labels)}
+        color_indices: list[int] = [label_to_idx[label] for label in ordered_labels]
 
         # Plot color bar
         ax2.imshow([color_indices], aspect="auto", cmap=cmap)
@@ -231,18 +258,18 @@ def plot_hierarchical_clustering(
         ax2.set_yticks([])
 
         # Create legend
-        n_colors = len(unique_labels)
+        n_colors: int = len(unique_labels)
         if n_colors <= 20:
             colors = plt.cm.get_cmap(cmap)(np.linspace(0, 1, n_colors))
         else:
             colors = plt.cm.get_cmap("hsv")(np.linspace(0, 0.9, n_colors))
 
-        patches = [
+        patches: list[Patch] = [
             Patch(color=colors[i], label=str(label)) for i, label in enumerate(unique_labels)
         ]
 
         # Position legend
-        ncol = min(5, n_colors)  # Limit number of columns in legend
+        ncol: int = min(5, n_colors)  # Limit number of columns in legend
         ax2.legend(handles=patches, loc="center", ncol=ncol, bbox_to_anchor=(0.5, -2))
 
     plt.tight_layout()
@@ -251,11 +278,11 @@ def plot_hierarchical_clustering(
 
 
 def plot_clustering_from_results(
-    results,
-    group_key="group_2",
-    threshold=0.9,
-    linkage_method="average",
-    min_alive_counts=0,
+    results: CoactivationResults,
+    group_key: str = "group_2",
+    threshold: float = 0.9,
+    linkage_method: Literal["single", "complete", "average", "ward"] = "average",
+    min_alive_counts: int = 0,
     **kwargs,
 ):
     """
@@ -325,7 +352,7 @@ def run_decomp_pipeline(
     comp_model.to(device)
     target_model: nn.Module = comp_model.model
 
-	# dataset
+    # dataset
     dataset_kwargs_: dict[str, Any] = dataset_kwargs or {}
     dataset_kwargs_ = dict(
         n_features=target_model.config.n_features,
@@ -336,7 +363,7 @@ def run_decomp_pipeline(
     )
     dataset: Dataset[Any] = dataset_cls(**dataset_kwargs_)
 
-	# dataloader
+    # dataloader
     dataloader_kwargs_: dict[str, Any] = dataloader_kwargs or {}
     dataloader_kwargs_ = {
         "dataset": dataset,
@@ -348,7 +375,7 @@ def run_decomp_pipeline(
         **dataloader_kwargs_,
     )
 
-	# coactivations
+    # coactivations
     coactivations_kwargs = {
         "comp_model": comp_model,
         "data_loader": data_loader,
@@ -360,7 +387,7 @@ def run_decomp_pipeline(
         **coactivations_kwargs,
     )
 
-	# plotting
+    # plotting
     plot_kwargs_: dict[str, Any] = plot_kwargs or {}
     plot_kwargs_ = {
         "results": coactivations,
