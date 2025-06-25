@@ -139,7 +139,7 @@ def collect_coactivations(
 
 
 def plot_hierarchical_clustering(
-    similarity_matrix,
+    similarity_matrix: Float[Tensor, "n n"],
     labels=None,
     threshold=0.5,
     criterion="distance",
@@ -318,14 +318,14 @@ def run_decomp_pipeline(
     plot_kwargs: dict[str, Any] | None = None,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
 ):
+    # model
     comp_model: ComponentModel
     config: Config
     comp_model, config, _ = ComponentModel.from_pretrained(model_path)
     comp_model.to(device)
-    print(comp_model)
     target_model: nn.Module = comp_model.model
-    print(target_model)
 
+	# dataset
     dataset_kwargs_: dict[str, Any] = dataset_kwargs or {}
     dataset_kwargs_ = dict(
         n_features=target_model.config.n_features,
@@ -334,8 +334,9 @@ def run_decomp_pipeline(
         data_generation_type=config.task_config.data_generation_type,
         **dataset_kwargs_,
     )
-    dataset: dataset_cls = dataset_cls(**dataset_kwargs_)
+    dataset: Dataset[Any] = dataset_cls(**dataset_kwargs_)
 
+	# dataloader
     dataloader_kwargs_: dict[str, Any] = dataloader_kwargs or {}
     dataloader_kwargs_ = {
         "dataset": dataset,
@@ -347,6 +348,7 @@ def run_decomp_pipeline(
         **dataloader_kwargs_,
     )
 
+	# coactivations
     coactivations_kwargs = {
         "comp_model": comp_model,
         "data_loader": data_loader,
@@ -358,6 +360,7 @@ def run_decomp_pipeline(
         **coactivations_kwargs,
     )
 
+	# plotting
     plot_kwargs_: dict[str, Any] = plot_kwargs or {}
     plot_kwargs_ = {
         "results": coactivations,
