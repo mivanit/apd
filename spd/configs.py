@@ -118,6 +118,10 @@ class Config(BaseModel):
         default=None,
         description="Hidden dimension for the gate MLP; if None, use a single-layer gate",
     )
+    gate_type: Literal["gate", "gate_mlp", "sigmoid_gate_mlp", "swish_sigmoid_gate_mlp", "scaled_sigmoid_gate_mlp", "bounded_gate_mlp"] = Field(
+        default="gate_mlp",
+        description="Type of gate to use: 'gate' for simple Gate, 'gate_mlp' for GateMLP, 'sigmoid_gate_mlp' for SigmoidGateMLP, 'swish_sigmoid_gate_mlp' for SwishSigmoidGateMLP, 'scaled_sigmoid_gate_mlp' for ScaledSigmoidGateMLP, 'bounded_gate_mlp' for BoundedGateMLP",
+    )
     target_module_patterns: list[str] = Field(
         ...,
         description="List of fnmatch-style patterns that select nn.Linear / nn.Embedding modules to decompose",
@@ -167,6 +171,14 @@ class Config(BaseModel):
     pnorm: PositiveFloat = Field(
         ...,
         description="The p-value used for the L_p sparsity loss",
+    )
+    p_anneal_start_frac: float = Field(
+        default=1.0,
+        description="Fraction of training after which to start annealing p (1.0 means no annealing)",
+    )
+    p_anneal_final_p: PositiveFloat | None = Field(
+        default=None,
+        description="Final p value to anneal to (None means no annealing)",
     )
     output_loss_type: Literal["mse", "kl"] = Field(
         ...,

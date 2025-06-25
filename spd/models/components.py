@@ -38,7 +38,7 @@ class Gate(nn.Module):
 class GateMLP(nn.Module):
     """A gate with a hidden layer that maps a single input to a single output."""
 
-    def __init__(self, m: int, n_gate_hidden_neurons: int):
+    def __init__(self, m: int, n_gate_hidden_neurons: int, nl="relu"):
         super().__init__()
         self.n_gate_hidden_neurons = n_gate_hidden_neurons
 
@@ -77,6 +77,218 @@ class GateMLP(nn.Module):
     @torch.compile
     def forward_unclamped(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
         return upper_leaky_relu(self._compute_pre_activation(x))
+
+
+class SigmoidGateMLP(nn.Module):
+    """A gate with a hidden layer that uses sigmoid activation for 0-1 outputs."""
+
+    def __init__(self, m: int, n_gate_hidden_neurons: int):
+        super().__init__()
+        
+        #hardcoded params for sigmoid gate
+        self.x_offset = 0.5
+        self.steepness = 5
+        self.n_gate_hidden_neurons = n_gate_hidden_neurons
+
+        self.mlp_in = nn.Parameter(torch.empty((m, n_gate_hidden_neurons)))
+        self.in_bias = nn.Parameter(torch.zeros((m, n_gate_hidden_neurons)))
+        self.mlp_out = nn.Parameter(torch.zeros((m, n_gate_hidden_neurons)))#nn.Parameter(torch.empty((m, n_gate_hidden_neurons)))
+        self.out_bias = nn.Parameter(torch.zeros((m,)))
+
+        init_param_(self.mlp_in, fan_val=1, nonlinearity="relu")
+        init_param_(self.mlp_out, fan_val=n_gate_hidden_neurons, nonlinearity="linear")
+
+    def _compute_pre_activation(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
+        """Compute the output before applying the final activation function."""
+        # First layer with gelu activation
+        hidden = einops.einsum(
+            x,
+            self.mlp_in,
+            "... m, m n_gate_hidden_neurons -> ... m n_gate_hidden_neurons",
+        )
+        hidden = hidden + self.in_bias
+        hidden = F.gelu(hidden)
+
+        # Second layer
+        out = einops.einsum(
+            hidden,
+            self.mlp_out,
+            "... m n_gate_hidden_neurons, m n_gate_hidden_neurons -> ... m",
+        )
+        out = out + self.out_bias
+        return out
+
+    @torch.compile
+    def forward(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
+        return torch.sigmoid(self.steepness*(self._compute_pre_activation(x) - self.x_offset))
+
+    @torch.compile
+    def forward_unclamped(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
+        return self.forward(x)
+
+
+def swish_hard_sigmoid(x: Float[Tensor, "..."], beta: float = 5.0, scale: float = 0.5, xshift: float = 0.5, yshift: float = 0.5) -> Float[Tensor, "..."]:
+    """Swish-based hard sigmoid activation function."""
+    def upside_down_swish(x: Float[Tensor, "..."], beta: float = 1.0) -> Float[Tensor, "..."]:
+        return x * torch.sigmoid(beta * -x)
+    
+    def swish(x: Float[Tensor, "..."], beta: float = 1.0) -> Float[Tensor, "..."]:
+        return x * torch.sigmoid(beta * x)
+    
+    x = x - xshift
+    return yshift + (upside_down_swish(x-scale, beta) - swish(x, beta)) + (swish(x+scale, beta) - upside_down_swish(x, beta))
+
+
+class ScaledSigmoidGateMLP(nn.Module):
+    """A gate with sigmoid activation scaled to have asymptotes at 1+ε and -ε."""
+
+    def __init__(self, m: int, n_gate_hidden_neurons: int, epsilon: float = 0.1):
+        super().__init__()
+        
+        # Scaled sigmoid parameters
+        self.epsilon = epsilon
+        self.x_offset = 0.5
+        self.steepness = 5
+        self.n_gate_hidden_neurons = n_gate_hidden_neurons
+
+        self.mlp_in = nn.Parameter(torch.empty((m, n_gate_hidden_neurons)))
+        self.in_bias = nn.Parameter(torch.zeros((m, n_gate_hidden_neurons)))
+        self.mlp_out = nn.Parameter(torch.empty((m, n_gate_hidden_neurons)))
+        self.out_bias = nn.Parameter(torch.zeros((m,)))
+
+        init_param_(self.mlp_in, fan_val=1, nonlinearity="relu")
+        init_param_(self.mlp_out, fan_val=n_gate_hidden_neurons, nonlinearity="linear")
+
+    def _compute_pre_activation(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
+        """Compute the output before applying the final activation function."""
+        # First layer with gelu activation
+        hidden = einops.einsum(
+            x,
+            self.mlp_in,
+            "... m, m n_gate_hidden_neurons -> ... m n_gate_hidden_neurons",
+        )
+        hidden = hidden + self.in_bias
+        hidden = F.gelu(hidden)
+
+        # Second layer
+        out = einops.einsum(
+            hidden,
+            self.mlp_out,
+            "... m n_gate_hidden_neurons, m n_gate_hidden_neurons -> ... m",
+        )
+        out = out + self.out_bias
+        return out
+
+    @torch.compile
+    def forward(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
+        # Scale sigmoid from [0,1] to [-ε, 1+ε]
+        sigmoid_out = torch.sigmoid(self.steepness * (self._compute_pre_activation(x) - self.x_offset))
+        return sigmoid_out * (1 + 2 * self.epsilon) - self.epsilon
+
+    @torch.compile
+    def forward_unclamped(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
+        return torch.clamp(self.forward(x), min=0.0)
+
+
+class BoundedGateMLP(nn.Module):
+    """A gate with bounded leaky ReLU that has both upper and lower bounds."""
+
+    def __init__(self, m: int, n_gate_hidden_neurons: int, lower_bound: float = -0.1):
+        super().__init__()
+        self.lower_bound = lower_bound
+        self.n_gate_hidden_neurons = n_gate_hidden_neurons
+
+        self.mlp_in = nn.Parameter(torch.empty((m, n_gate_hidden_neurons)))
+        self.in_bias = nn.Parameter(torch.zeros((m, n_gate_hidden_neurons)))
+        self.mlp_out = nn.Parameter(torch.empty((m, n_gate_hidden_neurons)))
+        self.out_bias = nn.Parameter(torch.zeros((m,)))
+
+        init_param_(self.mlp_in, fan_val=1, nonlinearity="relu")
+        init_param_(self.mlp_out, fan_val=n_gate_hidden_neurons, nonlinearity="linear")
+
+    def _compute_pre_activation(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
+        """Compute the output before applying the final activation function."""
+        # First layer with gelu activation
+        hidden = einops.einsum(
+            x,
+            self.mlp_in,
+            "... m, m n_gate_hidden_neurons -> ... m n_gate_hidden_neurons",
+        )
+        hidden = hidden + self.in_bias
+        hidden = F.gelu(hidden)
+
+        # Second layer
+        out = einops.einsum(
+            hidden,
+            self.mlp_out,
+            "... m n_gate_hidden_neurons, m n_gate_hidden_neurons -> ... m",
+        )
+        out = out + self.out_bias
+        return out
+
+    @torch.compile
+    def forward(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
+        return torch.clamp(leaky_relu(torch.clamp(self._compute_pre_activation(x), max=1)), min=self.lower_bound)
+
+    @torch.compile
+    def forward_unclamped(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
+        return torch.clamp(upper_leaky_relu(self._compute_pre_activation(x)), min=self.lower_bound)
+
+
+class SwishSigmoidGateMLP(nn.Module):
+    """A gate with a hidden layer that uses swish-based hard sigmoid activation."""
+
+    def __init__(self, m: int, n_gate_hidden_neurons: int):
+        super().__init__()
+        
+        # Hardcoded params for swish sigmoid gate
+        self.beta = 5.0
+        self.scale = 0.5
+        self.xshift = 0.5
+        self.yshift = 0.5
+        self.n_gate_hidden_neurons = n_gate_hidden_neurons
+
+        self.mlp_in = nn.Parameter(torch.empty((m, n_gate_hidden_neurons)))
+        self.in_bias = nn.Parameter(torch.zeros((m, n_gate_hidden_neurons)))
+        self.mlp_out = nn.Parameter(torch.empty((m, n_gate_hidden_neurons)))
+        self.out_bias = nn.Parameter(torch.zeros((m,)))
+
+        init_param_(self.mlp_in, fan_val=1, nonlinearity="relu")
+        init_param_(self.mlp_out, fan_val=n_gate_hidden_neurons, nonlinearity="linear")
+
+    def _compute_pre_activation(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
+        """Compute the output before applying the final activation function."""
+        # First layer with gelu activation
+        hidden = einops.einsum(
+            x,
+            self.mlp_in,
+            "... m, m n_gate_hidden_neurons -> ... m n_gate_hidden_neurons",
+        )
+        hidden = hidden + self.in_bias
+        hidden = F.gelu(hidden)
+
+        # Second layer
+        out = einops.einsum(
+            hidden,
+            self.mlp_out,
+            "... m n_gate_hidden_neurons, m n_gate_hidden_neurons -> ... m",
+        )
+        out = out + self.out_bias
+        return out
+
+    @torch.compile
+    def forward(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
+        return swish_hard_sigmoid(
+            self._compute_pre_activation(x), 
+            beta=self.beta, 
+            scale=self.scale, 
+            xshift=self.xshift, 
+            yshift=self.yshift
+        )
+
+    @torch.compile
+    def forward_unclamped(self, x: Float[Tensor, "batch m"]) -> Float[Tensor, "batch m"]:
+        return torch.clamp(self.forward(x), min=0.0)
 
 
 class LinearComponent(nn.Module):

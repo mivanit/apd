@@ -14,10 +14,14 @@ from wandb.apis.public import Run
 
 from spd.configs import Config
 from spd.models.components import (
+    BoundedGateMLP,
     EmbeddingComponent,
     Gate,
     GateMLP,
     LinearComponent,
+    ScaledSigmoidGateMLP,
+    SigmoidGateMLP,
+    SwishSigmoidGateMLP,
 )
 from spd.spd_types import WANDB_PATH_PREFIX, ModelPath
 from spd.utils import load_pretrained
@@ -46,6 +50,7 @@ class ComponentModel(nn.Module):
         m: int,
         n_gate_hidden_neurons: int | None,
         pretrained_model_output_attr: str | None,
+        gate_type: str = "gate_mlp",
     ):
         super().__init__()
         self.model = base_model
@@ -55,11 +60,29 @@ class ComponentModel(nn.Module):
             target_module_patterns=target_module_patterns, m=m
         )
 
-        # Use GateMLP if n_gate_hidden_neurons is provided, otherwise use Gate
-        gate_class = GateMLP if n_gate_hidden_neurons is not None else Gate
+        # Gate type mapping
+        gate_classes = {
+            "gate": Gate,
+            "gate_mlp": GateMLP,
+            "sigmoid_gate_mlp": SigmoidGateMLP,
+            "swish_sigmoid_gate_mlp": SwishSigmoidGateMLP,
+            "scaled_sigmoid_gate_mlp": ScaledSigmoidGateMLP,
+            "bounded_gate_mlp": BoundedGateMLP,
+        }
+        
+        # Determine gate class and kwargs
+        gate_class = gate_classes.get(gate_type)
+        if gate_class is None:
+            raise ValueError(f"Unknown gate_type: {gate_type}. Options: {list(gate_classes.keys())}")
+        
+        # Build kwargs based on gate requirements
         gate_kwargs = {"m": m}
-        if n_gate_hidden_neurons is not None:
-            gate_kwargs["n_gate_hidden_neurons"] = n_gate_hidden_neurons
+        if gate_class in (GateMLP, SigmoidGateMLP, SwishSigmoidGateMLP, ScaledSigmoidGateMLP, BoundedGateMLP):
+            if n_gate_hidden_neurons is None:
+                # Fall back to simple Gate for backwards compatibility
+                gate_class = Gate
+            else:
+                gate_kwargs["n_gate_hidden_neurons"] = n_gate_hidden_neurons
 
         self.gates = nn.ModuleDict({name: gate_class(**gate_kwargs) for name in self.components})
 
@@ -274,6 +297,7 @@ class ComponentModel(nn.Module):
             m=config.m,
             n_gate_hidden_neurons=config.n_gate_hidden_neurons,
             pretrained_model_output_attr=config.pretrained_model_output_attr,
+            gate_type=getattr(config, "gate_type", "gate_mlp"),  # Default to gate_mlp for backwards compatibility
         )
         comp_model.load_state_dict(model_weights)
         return comp_model, config, out_dir

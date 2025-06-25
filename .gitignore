@@ -171,3 +171,7 @@ cython_debug/
 CLAUDE.md
 apd_venv
 commands.sh
+.claude
+slconf*
+
+spd/experiments/**/*.yaml

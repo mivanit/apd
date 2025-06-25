@@ -5,12 +5,19 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 
 from spd.models.component_model import ComponentModel
-from spd.models.components import EmbeddingComponent, Gate, GateMLP, LinearComponent
+from spd.models.components import (
+    EmbeddingComponent,
+    Gate,
+    GateMLP,
+    LinearComponent,
+    SigmoidGateMLP,
+    SwishSigmoidGateMLP,
+)
 from spd.utils import extract_batch_data
 
 
 def calc_masks(
-    gates: dict[str, Gate | GateMLP],
+    gates: dict[str, Gate | GateMLP | SigmoidGateMLP | SwishSigmoidGateMLP],
     target_component_acts: dict[str, Float[Tensor, "batch m"]],
     detach_inputs: bool = False,
 ) -> tuple[
@@ -103,10 +110,11 @@ def component_activation_statistics(
     | DataLoader[tuple[Float[Tensor, "..."], Float[Tensor, "..."]]],
     n_steps: int,
     device: str,
+    cutoff: float = 0.0,
 ) -> tuple[dict[str, float], dict[str, Float[Tensor, " m"]]]:
     """Get the number and strength of the masks over the full dataset."""
     # We used "-" instead of "." as module names can't have "." in them
-    gates: dict[str, Gate | GateMLP] = {
+    gates: dict[str, Gate | GateMLP | SigmoidGateMLP | SwishSigmoidGateMLP] = {
         k.removeprefix("gates.").replace("-", "."): v for k, v in model.gates.items()
     }  # type: ignore
     components: dict[str, LinearComponent | EmbeddingComponent] = {
@@ -142,7 +150,7 @@ def component_activation_statistics(
             n_tokens[module_name] += mask.shape[:-1].numel()
 
             # Count the number of components that are active at all
-            active_components = mask > 0
+            active_components = mask > cutoff
             total_n_active_components[module_name] += int(active_components.sum().item())
 
             sum_dims = tuple(range(mask.ndim - 1))
