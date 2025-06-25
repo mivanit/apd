@@ -223,7 +223,7 @@ def run_train(config: TMSTrainConfig, device: str) -> None:
     elif config.fixed_random_hidden_layers:
         run_name += "_fixed-random"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-    out_dir = Path(__file__).parent / "out" / f"{run_name}_{timestamp}"
+    out_dir = Path('/nlp/scr/nathu/apd/tms') / "out" / f"{run_name}_{timestamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if config.wandb_project:

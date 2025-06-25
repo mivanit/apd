@@ -60,14 +60,22 @@ def resid_mlp_plot_results_fn(
 ) -> dict[str, plt.Figure]:
     fig_dict = {}
 
-    figures, all_perm_indices_sparsity_masks = plot_mask_vals(
+    # Infer mlp_in modules from components keys
+    mlp_in_modules = [key for key in components if "mlp_in" in key]
+
+    figures, all_perm_indices_sparsity_masks, identity_metrics = plot_mask_vals(
         model=model,
         components=components,
         gates=gates,
         batch_shape=batch_shape,
         device=device,
         input_magnitude=0.75,
+        compute_identity_metrics=True,
+        identity_metrics_modules=mlp_in_modules,
     )
+    
+    # Add identity metrics to fig_dict (hackishly!)
+    fig_dict.update(identity_metrics)
 
     # Merge the figures dict into fig_dict
     fig_dict.update(figures)
@@ -133,7 +141,7 @@ def main(
         assert wandb.run, "wandb.run must be initialized before training"
         wandb.run.name = run_name
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-    out_dir = Path(__file__).parent / "out" / f"{run_name}_{timestamp}"
+    out_dir = Path('/nlp/scr/nathu/apd/resid_mlp') / "out" / f"{run_name}_{timestamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Save config

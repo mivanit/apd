@@ -54,6 +54,123 @@ def permute_to_identity(
     return new_mask, perm_indices
 
 
+def compute_identity_deviation_metric(
+    mask: Float[Tensor, "batch m"], metric_type: str = "frobenius_normalized"
+) -> float:
+    """Compute how far a feature vs subcomponent mask deviates from identity.
+
+    Args:
+        mask: Input mask with shape (n_features, n_subcomponents)
+        metric_type: Type of metric to compute. Options:
+            - "frobenius_normalized": Frobenius norm of difference from identity, normalized
+            - "off_diagonal_mass": Fraction of total mass that is off-diagonal
+            - "frobenius_normalized_rescaled": Frobenius norm after rescaling mask to [0,1]
+            - "off_diagonal_mass_rescaled": Off-diagonal mass after rescaling mask to [0,1]
+
+    Returns:
+        Deviation metric (lower values = closer to identity)
+    """
+    if mask.ndim != 2:
+        raise ValueError(f"Mask must have 2 dimensions, got {mask.ndim}")
+
+    # First permute to get closest to identity arrangement
+    permuted_mask, _ = permute_to_identity(mask)
+
+    # Apply rescaling if requested
+    if metric_type.endswith("_rescaled"):
+        # Normalize: subtract min, then scale so max = 1
+        mask_min = permuted_mask.min()
+        mask_max = permuted_mask.max()
+        if mask_max > mask_min:
+            permuted_mask = (permuted_mask - mask_min) / (mask_max - mask_min)
+        # If all values are the same, leave as is
+
+    batch, m = permuted_mask.shape
+    effective_size = min(batch, m)
+
+    base_metric_type = metric_type.replace("_rescaled", "")
+
+    if base_metric_type == "frobenius_normalized":
+        # Create ideal identity matrix of the same size
+        ideal_identity = torch.zeros_like(permuted_mask)
+        for i in range(effective_size):
+            ideal_identity[i, i] = 1.0
+
+        # Compute Frobenius norm of difference, normalized by the norm of ideal identity
+        diff = permuted_mask - ideal_identity
+        frobenius_norm = torch.norm(diff, p="fro").item()
+        ideal_norm = torch.norm(ideal_identity, p="fro").item()
+
+        return frobenius_norm / ideal_norm if ideal_norm > 0 else float("inf")
+
+    elif base_metric_type == "off_diagonal_mass":
+        # Fraction of total mass that is off the diagonal
+        diagonal_sum = sum(permuted_mask[i, i].item() for i in range(effective_size))
+        total_sum = permuted_mask.sum().item()
+
+        if total_sum == 0:
+            return 0.0
+
+        off_diagonal_sum = total_sum - diagonal_sum
+        return off_diagonal_sum / total_sum
+
+    else:
+        raise ValueError(f"Unknown metric_type: {metric_type}")
+
+
+def compute_identity_deviation_metrics_for_masks(
+    masks: dict[str, Float[Tensor, "batch m"]],
+    has_pos_dim: bool = False,
+    include_modules: list[str] | None = None,
+) -> dict[str, dict[str, float]]:
+    """Compute identity deviation metrics for specified masks.
+
+    Args:
+        masks: Dictionary of masks to analyze
+        has_pos_dim: Whether masks have a position dimension
+        include_modules: If provided, only compute metrics for these module names
+
+    Returns:
+        Dictionary mapping mask names to metric dictionaries
+    """
+    results = {}
+
+    # Filter masks based on include criteria
+    filtered_masks = {}
+    for mask_name, mask in masks.items():
+        # Apply include filter
+        if include_modules is not None:
+            if not any(module in mask_name for module in include_modules):
+                continue
+
+        filtered_masks[mask_name] = mask
+
+    for mask_name, mask in filtered_masks.items():
+        mask_data = mask.detach().cpu()
+
+        # Handle position dimension if present
+        if has_pos_dim:
+            assert mask_data.ndim == 3
+            mask_data = mask_data[:, 0, :]  # Use first position only
+
+        # Compute all metric types
+        metrics = {}
+        metric_types = [
+            "frobenius_normalized",
+            "off_diagonal_mass",
+            "frobenius_normalized_rescaled",
+        ]
+        for metric_type in metric_types:
+            try:
+                metrics[metric_type] = compute_identity_deviation_metric(mask_data, metric_type)
+            except Exception:
+                metrics[metric_type] = float("nan")
+
+        results[mask_name] = metrics
+
+    return results
+
+
 def _plot_mask_figure(
     masks: dict[str, Float[Tensor, "batch m"]],
     title_suffix: str,
@@ -123,7 +240,12 @@ def plot_mask_vals(
     device: str | torch.device,
     input_magnitude: float,
     plot_regular_masks: bool = True,
-) -> tuple[dict[str, plt.Figure], dict[str, Float[Tensor, " m"]]]:
+    compute_identity_metrics: bool = False,
+    identity_metrics_modules: list[str] | None = None,
+) -> (
+    tuple[dict[str, plt.Figure], dict[str, Float[Tensor, " m"]]]
+    | tuple[dict[str, plt.Figure], dict[str, Float[Tensor, " m"]], dict[str, float]]
+):
     """Plot the values of the mask for a batch of inputs with single active features.
 
     Args:
@@ -134,11 +256,17 @@ def plot_mask_vals(
         device: Device to use
         input_magnitude: Magnitude of input features
         plot_regular_masks: Whether to plot the regular masks (blue plots)
+        compute_identity_metrics: Whether to compute identity deviation metrics (default False)
+        identity_metrics_modules: If provided, only compute identity metrics for these module names
 
     Returns:
-        Tuple of:
+        If compute_identity_metrics=False:
             - Dictionary of figures with keys 'masks' (if plot_regular_masks=True) and 'sparsity_masks'
             - Dictionary of permutation indices for sparsity masks
+        If compute_identity_metrics=True:
+            - Dictionary of figures with keys 'masks' (if plot_regular_masks=True) and 'sparsity_masks'
+            - Dictionary of permutation indices for sparsity masks
+            - Dictionary of identity deviation metrics (flattened for wandb logging)
     """
     # First, create a batch of inputs with single active features
     has_pos_dim = len(batch_shape) == 3
@@ -199,7 +327,23 @@ def plot_mask_vals(
     )
     figures["sparsity_masks"] = sparsity_masks_fig
 
-    return figures, all_perm_indices_sparsity_masks
+    # Compute identity deviation metrics if requested
+    if compute_identity_metrics:
+        identity_metrics = compute_identity_deviation_metrics_for_masks(
+            masks=sparsity_masks_raw,
+            has_pos_dim=has_pos_dim,
+            include_modules=identity_metrics_modules,
+        )
+
+        # Flatten metrics for wandb logging
+        identity_metrics_flat = {}
+        for mask_name, metrics in identity_metrics.items():
+            for metric_type, value in metrics.items():
+                identity_metrics_flat[f"identity_deviation/{mask_name}/{metric_type}"] = value
+
+        return figures, all_perm_indices_sparsity_masks, identity_metrics_flat
+    else:
+        return figures, all_perm_indices_sparsity_masks
 
 
 def plot_subnetwork_attributions_statistics(
@@ -382,7 +526,10 @@ def plot_mean_component_activation_counts(
     # Iterate through modules and plot each histogram on its corresponding axis
     for i, (module_name, counts) in enumerate(mean_component_activation_counts.items()):
         ax = axs[i]
-        ax.hist(counts.detach().cpu().numpy(), bins=100)
+        try:
+            ax.hist(counts.detach().cpu().numpy(), bins=100)
+        except ValueError:
+            pass
         ax.set_yscale("log")
         ax.set_title(module_name)  # Add module name as title to each subplot
         ax.set_xlabel("Mean Activation Count")

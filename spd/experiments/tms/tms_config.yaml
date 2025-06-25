@@ -94,6 +94,7 @@ save_freq: null
 pretrained_model_class: "spd.experiments.tms.models.TMSModel"
 # pretrained_model_path: "wandb:spd-train-tms/runs/wckft4gh"
 pretrained_model_path: "notebooks/data/tms/tms.pth"
+# pretrained_model_path: "wandb:nathu/spd-train-tms/runs/5tga2sqt"  # Your trained 40-10 model with identity
 # pretrained_model_path: "wandb:spd-train-tms/runs/95fmll0x" # 1 hidden w/fixed identity
 
 # --- Task Specific ---
