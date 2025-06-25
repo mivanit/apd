@@ -1,39 +1,40 @@
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 from jaxtyping import Float, Int
-from torch import Tensor
-from torch.utils.data import Dataset, DataLoader
-from tqdm import tqdm
 from matplotlib.patches import Patch
 from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
 from scipy.spatial.distance import squareform
+from torch import Tensor
+from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
 from spd.configs import Config
-from spd.data_utils import DatasetGeneratedDataLoader, SparseFeatureDataset
-from spd.experiments.resid_mlp.resid_mlp_dataset import ResidualMLPDataset
+from spd.data_utils import DatasetGeneratedDataLoader
 from spd.models.component_model import ComponentModel
 from spd.models.component_utils import calc_component_acts, calc_masks
-from spd.utils import extract_batch_data, get_device
+from spd.utils import extract_batch_data
 
 
 def calc_jaccard_index(
-        co_occurrence_matrix: Float[Tensor, "n n"], 
-        marginal_counts: Float[Tensor, " n"],
-    ) -> Float[Tensor, "n n"]:
-    """
-    Calculate the Jaccard index for each component based on co-occurrence matrix and marginal counts.
+    co_occurrence_matrix: Float[Tensor, "n n"],
+    marginal_counts: Float[Tensor, " n"],
+) -> Float[Tensor, "n n"]:
+    """Calculate the Jaccard index
+
+     for each component based on co-occurrence matrix and marginal counts
     Jaccard index = |A ∩ B| / |A ∪ B|
     """
-    union: Float[Tensor, "n n"] = marginal_counts.unsqueeze(0) + marginal_counts.unsqueeze(1) - co_occurrence_matrix
+    union: Float[Tensor, "n n"] = (
+        marginal_counts.unsqueeze(0) + marginal_counts.unsqueeze(1) - co_occurrence_matrix
+    )
     jaccard_index: Float[Tensor, "n n"] = co_occurrence_matrix / union
     jaccard_index[union == 0] = 0.0  # Handle division by zero
     return jaccard_index
-
 
 
 @torch.no_grad()
@@ -48,12 +49,10 @@ def collect_coactivations(
 ) -> dict[str, Any]:
     # 1. Setup phase - FIXED: use comp_model not model
     components: dict[str, nn.Module] = {
-        k.removeprefix("components.").replace("-", "."): v 
-        for k, v in comp_model.components.items()
+        k.removeprefix("components.").replace("-", "."): v for k, v in comp_model.components.items()
     }
     gates: dict[str, nn.Module] = {
-        k.removeprefix("gates.").replace("-", "."): v 
-        for k, v in comp_model.gates.items()
+        k.removeprefix("gates.").replace("-", "."): v for k, v in comp_model.gates.items()
     }
 
     # Build module_slices for each group
@@ -139,7 +138,6 @@ def collect_coactivations(
     return results
 
 
-
 def plot_hierarchical_clustering(
     similarity_matrix,
     labels=None,
@@ -191,8 +189,9 @@ def plot_hierarchical_clustering(
 
     # Create figure
     if labels is not None:
-        ax1: plt.Axes; ax2: plt.Axes
-        fig, (ax1, ax2) = plt.subplots( # type: ignore
+        ax1: plt.Axes
+        ax2: plt.Axes
+        fig, (ax1, ax2) = plt.subplots(  # type: ignore
             2, 1, figsize=figsize, gridspec_kw={"height_ratios": [20, 1]}
         )
     else:
@@ -311,21 +310,22 @@ def plot_clustering_from_results(
 
 
 def run_decomp_pipeline(
-	model_path: Path,
-	dataset_cls: type[Dataset[Any]],
+    model_path: Path,
+    dataset_cls: type[Dataset[Any]],
     coactivations_kwargs: dict[str, Any],
     dataset_kwargs: dict[str, Any] | None = None,
     dataloader_kwargs: dict[str, Any] | None = None,
     plot_kwargs: dict[str, Any] | None = None,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
 ):
-    comp_model: ComponentModel; config: Config
+    comp_model: ComponentModel
+    config: Config
     comp_model, config, _ = ComponentModel.from_pretrained(model_path)
     comp_model.to(device)
     print(comp_model)
     target_model: nn.Module = comp_model.model
     print(target_model)
-    
+
     dataset_kwargs_: dict[str, Any] = dataset_kwargs or {}
     dataset_kwargs_ = dict(
         n_features=target_model.config.n_features,
@@ -346,7 +346,6 @@ def run_decomp_pipeline(
     data_loader: DatasetGeneratedDataLoader[Any] = DatasetGeneratedDataLoader(
         **dataloader_kwargs_,
     )
-	
 
     coactivations_kwargs = {
         "comp_model": comp_model,
