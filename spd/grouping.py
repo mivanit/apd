@@ -141,10 +141,11 @@ def collect_coactivations(
                 active_mask = group_masks > activation_threshold  # [batch, group_m]
 
                 # Accumulate co-occurrences and marginals
-                results[f"group_{group_idx}"]["co_occurrence_matrix"] += torch.einsum(
+                group_key: str = f"group_{group_idx}"
+                results[group_key]["co_occurrence_matrix"] += torch.einsum(
                     "bi,bj->ij", active_mask.float(), active_mask.float()
                 )
-                results[f"group_{group_idx}"]["marginal_counts"] += active_mask.sum(dim=0)
+                results[group_key]["marginal_counts"] += active_mask.sum(dim=0)
             batch_size = batch.size(0)
             samples_processed += batch_size
             pbar.update(batch_size)
@@ -279,7 +280,7 @@ def plot_hierarchical_clustering(
 
 def plot_clustering_from_results(
     results: CoactivationResults,
-    group_key: str = "group_2",
+    group_key: str = "group_0",
     threshold: float = 0.9,
     linkage_method: Literal["single", "complete", "average", "ward"] = "average",
     min_alive_counts: int = 0,
@@ -336,15 +337,14 @@ def plot_clustering_from_results(
     return fig, clusters, Z, alive_mask
 
 
-def run_decomp_pipeline(
+def get_coactivations(
     model_path: Path,
     dataset_cls: type[Dataset[Any]],
     coactivations_kwargs: dict[str, Any],
     dataset_kwargs: dict[str, Any] | None = None,
     dataloader_kwargs: dict[str, Any] | None = None,
-    plot_kwargs: dict[str, Any] | None = None,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
-):
+) -> CoactivationResults:
     # model
     comp_model: ComponentModel
     config: Config
@@ -383,19 +383,8 @@ def run_decomp_pipeline(
         "activation_threshold": 0.1,
         **coactivations_kwargs,
     }
-    coactivations: dict[str, Any] = collect_coactivations(
+    coactivations: CoactivationResults = collect_coactivations(
         **coactivations_kwargs,
     )
 
-    # plotting
-    plot_kwargs_: dict[str, Any] = plot_kwargs or {}
-    plot_kwargs_ = {
-        "results": coactivations,
-        "threshold": 0.8,
-        "min_alive_counts": 500,
-        "title": "",
-        **plot_kwargs_,
-    }
-    fig, clusters, Z, alive_mask = plot_clustering_from_results(
-        **plot_kwargs_,
-    )
+    return coactivations
