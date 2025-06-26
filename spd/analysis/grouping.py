@@ -14,11 +14,39 @@ from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
+from spd.analysis.grouping import CoactivationResultsGroup
+from spd.analysis.embedding import NDArray
+from jaxtyping import Float
+import numpy as np
+from typing import Any
+
 from spd.configs import Config
 from spd.data_utils import DatasetGeneratedDataLoader
 from spd.models.component_model import ComponentModel
 from spd.models.component_utils import calc_component_acts, calc_masks
 from spd.utils import extract_batch_data
+
+
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import torch
+
+
+from muutils.dbg import dbg_tensor
+
+
+from spd.data_utils import SparseFeatureDataset
+from spd.experiments.resid_mlp.resid_mlp_dataset import ResidualMLPDataset
+from spd.analysis.grouping import (
+    CoactivationResults,
+    get_coactivations,
+    plot_clustering_from_results,
+)
+from spd.analysis.embedding import sweep_embedding_param, plot_embedding_result
+
+from spd.utils import get_device
 
 
 def calc_jaccard_index(
@@ -404,3 +432,41 @@ def get_coactivations(
     )
 
     return coactivations
+
+
+
+def get_comp_dist_mat(
+	group: CoactivationResultsGroup,
+	verbose: bool = True,
+	plots: bool = True,
+	epsilon: float = 1,
+	normalize_dist: bool = True,
+) -> Float[NDArray, "n n"]:
+	jac: Float[NDArray, "n n"] = group["jaccard"].cpu()
+	
+	if verbose:
+		dbg_tensor(jac)
+
+	dist: Float[NDArray, "n n"] = 1/(jac+epsilon)
+	if normalize_dist:
+		dist = dist / dist.max()
+
+	if verbose:
+		dbg_tensor(dist)
+
+	if plots:
+		fig, ax = plt.subplots(1, 4, figsize=(12, 3))
+		ax[0].matshow(jac, cmap="viridis")
+		ax[0].set_title("Jaccard Matrix")
+		ax[1].hist(jac.flatten(), bins=20)
+		ax[1].set_yscale("log")
+		ax[1].set_title("Jaccard Histogram")
+		ax[2].matshow(dist, cmap="viridis")
+		ax[2].set_title("Distance Matrix")
+		ax[3].hist(dist.flatten(), bins=20)
+		ax[3].set_yscale("log")
+		ax[3].set_title("Distance Histogram")
+		plt.tight_layout()
+		plt.show()
+
+	return dist
