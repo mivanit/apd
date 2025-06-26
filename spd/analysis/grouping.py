@@ -355,17 +355,15 @@ def plot_clustering_from_results(
         **kwargs,
     )
 
-    # Print summary
-    print(f"Number of alive elements: {alive_mask.sum()}")
-    print(f"Number of clusters: {len(np.unique(clusters))}")
-    print(f"Cluster sizes: {np.bincount(clusters)[1:]}")  # Skip 0 if exists
-
     return dict(
         # fig, clusters, Z, alive_mask
         fig=fig,
         clusters=clusters,
         Z=Z,
         alive_mask=alive_mask,
+        n_clusters=len(np.unique(clusters)),
+        cluster_sizes=np.bincount(clusters)[1:],
+        n_active=alive_mask.sum().item(),
     )
 
 
