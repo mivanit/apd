@@ -2,7 +2,7 @@
 name = "spd"
 version = "0.0.1"
 description = "Sparse Parameter Decomposition"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 readme = "README.md"
 dependencies = [
     "torch>2.4.1,<2.6.0",
@@ -25,11 +25,14 @@ dependencies = [
     "streamlit-antd-components",
     "datasets",
     # added
-    "scipy",
+    "numba",
+    "scipy>=1.14.1",
+    "scikit-learn",
+    "umap-learn>=0.5.7",
     "muutils",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "ruff",
     "pytest",
@@ -37,12 +40,12 @@ dev = [
     # "pre-commit",
 ]
 
-[build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+[tool.uv]
+	default-groups = ["dev"]
 
-[tool.setuptools]
-packages = ["spd", "spd.models", "spd.experiments"]
+[build-system]
+	requires = ["hatchling"]
+	build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 100

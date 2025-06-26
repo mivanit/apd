@@ -24,7 +24,8 @@ pnorm: 2.0
 pretrained_model_class: spd.experiments.resid_mlp.models.ResidualMLP
 pretrained_model_name_hf: null
 pretrained_model_output_attr: null
-pretrained_model_path: wandb:nathu/spd-train-resid-mlp/runs/d5azngjz
+# pretrained_model_path: wandb:nathu/spd-train-resid-mlp/runs/d5azngjz
+pretrained_model_path: notebooks/data/mlp3-decomp/resid_mlp.pth
 print_freq: 500
 random_mask_recon_coeff: 1.0
 save_freq: null
