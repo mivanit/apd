@@ -38,22 +38,38 @@ def calc_jaccard_index(
     return jaccard_index
 
 
+
+CoactivationResultsGroup = dict[
+    Literal[
+        "co_occurrence_matrix",
+        "marginal_counts",
+        "module_slices",
+        "modules",
+        "labels",
+        "total_samples",
+        "activation_threshold",
+        "jaccard",
+    ],
+    Any,
+]
+
 CoactivationResults = dict[
     str,  # group key
-    dict[
-        Literal[
-            "co_occurrence_matrix",
-            "marginal_counts",
-            "module_slices",
-            "modules",
-            "labels",
-            "total_samples",
-            "activation_threshold",
-            "jaccard",
-        ],
-        Any,
-    ],
+    CoactivationResultsGroup,
 ]
+
+def print_coac_info(
+    x: CoactivationResults,
+):
+    for group_key, group in x.items():
+        print(f"{group_key = }:")
+        for k, v in group.items():
+            if isinstance(v, torch.Tensor):
+                print(f"  {k}: {v.shape}")
+            elif k == "labels":
+                print(f"  labels: {set(v.tolist()) = }, {len(v) = }")
+            else:
+                print(f"  {k}: {v}")
 
 
 @torch.no_grad()

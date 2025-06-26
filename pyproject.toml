@@ -40,6 +40,10 @@ dev = [
     # "pre-commit",
 ]
 
+
+[tool.uv.sources]
+    muutils = { git = "https://github.com/mivanit/muutils" }
+
 [tool.uv]
 	default-groups = ["dev"]
 
