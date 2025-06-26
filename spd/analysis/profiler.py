@@ -1,4 +1,3 @@
-
 import functools
 from collections.abc import Callable
 from pathlib import Path
@@ -27,7 +26,7 @@ def torch_profile(
     profiler_kwargs: dict[str, object] | None = None,
 ) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Start a *torch.profiler.profile* session around the decorated function.
-    
+
     The profiler starts **before** the wrapped function executes and is
     **always** stopped and exported in a *finally* block, guaranteeing a trace
     even if the function raises.
@@ -40,7 +39,7 @@ def torch_profile(
         function under this keyword (defaults to `"profiler"`). If `None`, the
         profiler is *not* passed.
      - `profiler_kwargs : dict[str, object] | None`
-        Keyword arguments forwarded verbatim to `torch.profiler.profile`.  
+        Keyword arguments forwarded verbatim to `torch.profiler.profile`.
         (Defaults to `DEFAULT_TORCH_PROFILER_KWARGS`.)
 
     # Returns:
