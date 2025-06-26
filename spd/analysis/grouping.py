@@ -48,6 +48,10 @@ CoactivationResultsGroup = dict[
         "total_samples",
         "activation_threshold",
         "jaccard",
+        "group_masks",
+        "active_mask",
+        "active_freq",
+        "is_alive",
     ],
     Any,
 ]
@@ -79,7 +83,8 @@ def collect_coactivations(
     | DataLoader[tuple[Float[Tensor, "..."], Float[Tensor, "..."]]],
     module_groups: list[list[str]],  # e.g., [["layers.0.mlp"], ["layers.1.attn", "layers.1.mlp"]],
     n_samples: int = 10000,  # number of samples to collect for co-activation
-    activation_threshold: float = 0.5,  # mask threshold for a component to be considered active
+    activation_threshold: float = 0.01,  # mask threshold for a component to be considered active
+    alive_min_freq: float = 1e-3,  # minimum frequency for a component to be considered alive
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
 ) -> dict[str, Any]:
     # 1. Setup phase - FIXED: use comp_model not model
@@ -150,14 +155,19 @@ def collect_coactivations(
 
             # Process each group
             for group_idx, modules in enumerate(module_groups):
+                group_key: str = f"group_{group_idx}"
                 # Concatenate masks within group
                 group_masks = torch.cat([masks[mod] for mod in modules], dim=-1)  # [batch, group_m]
-
+                results[group_key]["group_masks"] = group_masks
+                
                 # Apply threshold
                 active_mask = group_masks > activation_threshold  # [batch, group_m]
+                results[group_key]["active_mask"] = active_mask
+
+                results[group_key]["active_freq"] = active_mask.sum(dim=0) / active_mask.shape[0]
+                results[group_key]["is_alive"] = results[group_key]["active_freq"] > alive_min_freq
 
                 # Accumulate co-occurrences and marginals
-                group_key: str = f"group_{group_idx}"
                 results[group_key]["co_occurrence_matrix"] += torch.einsum(
                     "bi,bj->ij", active_mask.float(), active_mask.float()
                 )
@@ -301,7 +311,7 @@ def plot_clustering_from_results(
     linkage_method: Literal["single", "complete", "average", "ward"] = "average",
     min_alive_counts: int = 0,
     **kwargs,
-):
+) -> dict[str, Any]:
     """
     Convenience function to plot directly from results dictionary.
 
@@ -350,7 +360,13 @@ def plot_clustering_from_results(
     print(f"Number of clusters: {len(np.unique(clusters))}")
     print(f"Cluster sizes: {np.bincount(clusters)[1:]}")  # Skip 0 if exists
 
-    return fig, clusters, Z, alive_mask
+    return dict(
+        # fig, clusters, Z, alive_mask
+        fig=fig,
+        clusters=clusters,
+        Z=Z,
+        alive_mask=alive_mask,
+    )
 
 
 def get_coactivations(
