@@ -1,24 +1,21 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
-from itertools import product
 
 import matplotlib.pyplot as plt
 import numpy as np
 from jaxtyping import Float
-from muutils.collect_warnings import CollateWarnings
 from muutils.dbg import dbg_tensor
 from sklearn.base import TransformerMixin
-from sklearn.manifold import TSNE, Isomap
-from umap import UMAP
 from sklearn.cluster import (
-    KMeans,
-    AgglomerativeClustering,
-    SpectralClustering,
     DBSCAN,
     OPTICS,
+    AgglomerativeClustering,
+    KMeans,
+    SpectralClustering,
 )
-
+from sklearn.manifold import TSNE, Isomap
+from umap import UMAP
 
 from spd.analysis.grouping import CoactivationResultsGroup
 
@@ -34,6 +31,7 @@ ClusteringMethod = Literal[
     "dbscan",
     "optics",
 ]
+
 
 @dataclass
 class EmbeddingResult:
@@ -71,6 +69,7 @@ def get_embedding_model(
             )
         case _:
             raise ValueError(f"Unsupported embedding method: {method}")
+
 
 def get_clustering_model(
     method: ClusteringMethod,
@@ -149,7 +148,6 @@ def plot_embedding_result(
         ax.grid(True)
     plt.tight_layout()
     plt.show()
-
 
 
 def get_comp_dist_mat(
@@ -254,7 +252,7 @@ def sweep_embeddings_and_clusters(
         "agglomerative": {"n_clusters": n_clusters},
         "spectral": {"n_clusters": n_clusters},
         "dbscan": {"eps": 0.1},  # tweak as needed
-        "optics": {},            # defaults are fine
+        "optics": {},  # defaults are fine
     }
 
     # --- canvas ------------------------------------------------------------- #
@@ -268,15 +266,11 @@ def sweep_embeddings_and_clusters(
 
     # --- sweep -------------------------------------------------------------- #
     for row, emb_method in enumerate(embedding_methods):
-        emb_model = get_embedding_model(
-            emb_method, {}, n_components=2, random_state=random_state
-        )
+        emb_model = get_embedding_model(emb_method, {}, n_components=2, random_state=random_state)
         emb: NDArray = emb_model.fit_transform(dist)
 
         for col, (cls_method, cls_kwargs) in enumerate(clustering_specs.items()):
-            cls_model = get_clustering_model(
-                cls_method, cls_kwargs, random_state=random_state
-            )
+            cls_model = get_clustering_model(cls_method, cls_kwargs, random_state=random_state)
             labels: NDArray = cls_model.fit_predict(emb)
 
             ax = axes[row][col]

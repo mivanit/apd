@@ -159,7 +159,7 @@ def collect_coactivations(
                 # Concatenate masks within group
                 group_masks = torch.cat([masks[mod] for mod in modules], dim=-1)  # [batch, group_m]
                 results[group_key]["group_masks"] = group_masks
-                
+
                 # Apply threshold
                 active_mask = group_masks > activation_threshold  # [batch, group_m]
                 results[group_key]["active_mask"] = active_mask
@@ -264,7 +264,10 @@ def hierarchical_clustering(
 
         # Plot dendrogram
         dend = dendrogram(
-            Z_linkage, ax=ax1, color_threshold=threshold if criterion == "distance" else None, no_labels=True
+            Z_linkage,
+            ax=ax1,
+            color_threshold=(threshold if criterion == "distance" else None),
+            no_labels=True,
         )
         ax1.axhline(
             y=threshold if criterion == "distance" else 0,
@@ -312,10 +315,12 @@ def hierarchical_clustering(
 
         plt.tight_layout()
 
-        output.update(dict(
-            fig=fig,
-            labels=labels,
-        ))
+        output.update(
+            dict(
+                fig=fig,
+                labels=labels,
+            )
+        )
 
     return output
 
@@ -374,7 +379,7 @@ def coactivation_hierarchical_clustering(
     # type list[int] with -1 for inactive components
     clusters_nomask: list[int] = list()
     idx_mask: int = 0
-    for idk_nomask, alive in enumerate(alive_mask):
+    for alive in alive_mask:
         if alive:
             clusters_nomask.append(clusters[idx_mask])
             idx_mask += 1

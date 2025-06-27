@@ -19,6 +19,13 @@ format:
 	SKIP=no-commit-to-branch pre-commit run -a ruff-lint
 	SKIP=no-commit-to-branch pre-commit run -a ruff-format
 
+.PHONY: format-m
+format-m:
+	$(PYTHON) -m ruff check --fix spd/analysis
+	$(PYTHON) -m ruff check --fix notebooks/mivanit
+	$(PYTHON) -m ruff format spd/analysis
+	$(PYTHON) -m ruff format notebooks/mivanit
+
 .PHONY: check
 check:
 	SKIP=no-commit-to-branch pre-commit run -a --hook-stage commit
