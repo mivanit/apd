@@ -2,10 +2,10 @@ from dataclasses import dataclass
 from itertools import product
 from typing import Any, Literal
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from jaxtyping import Float
-from muutils.collect_warnings import CollateWarnings
 from sklearn.base import TransformerMixin
 
 from spd.analysis.embedding import (
@@ -45,6 +45,8 @@ class AnalysisConfig:
 
     # Number of embedding components
     n_components: int = 3
+
+    alive_only: bool = True
 
     def __post_init__(self) -> None:
         if self.embedding_configs is None:
@@ -197,14 +199,13 @@ def coactivation_analysis(
             param_str = _format_hyperparam_str(params)
 
             try:
-                with CollateWarnings():
-                    emb_model: TransformerMixin = get_embedding_model(
-                        emb_method,
-                        params,
-                        n_components=config.n_components,
-                        random_state=config.random_state,
-                    )
-                    emb_coords: NDArray = emb_model.fit_transform(alive_dist_mat)
+                emb_model: TransformerMixin = get_embedding_model(
+                    emb_method,
+                    params,
+                    n_components=config.n_components,
+                    random_state=config.random_state,
+                )
+                emb_coords: NDArray = emb_model.fit_transform(alive_dist_mat)
 
                 # Store embedding coordinates
                 emb_key = f"{emb_method}.{param_str}"
@@ -260,6 +261,20 @@ def coactivation_analysis(
     # Create DataFrame
     df = pd.DataFrame(df_data)
 
+    # process DataFrame
+
+    # add a log activation frequency column
+    df["feat.activation_freq_log"] = np.log1p(df["feat.activation_freq"])
+
+    # only alive features
+    if config.alive_only:
+        df = df[df["feat.alive"]]
+
+    # every "feat.class.*" column should be a string category
+    feat_class_cols = [col for col in df.columns if col.startswith("feat.class.")]
+    for col in feat_class_cols:
+        df[col] = df[col].astype("category")
+
     # Create metadata
     metadata = DataFrameMetadata(
         n_features=n_features,
@@ -283,3 +298,155 @@ def coactivation_analysis(
         print(f"Column groups: {[f'{k}({len(v)})' for k, v in column_groups.items()]}")
 
     return df, metadata
+
+
+def plot_embedding_label_grid(
+    df: pd.DataFrame,
+    metadata: DataFrameMetadata,
+    embedding_axes: tuple[int, int] = (0, 1),
+    label_columns: list[str] | None = None,
+    alpha: float = 0.8,
+    point_size: int = 8,
+    figsize_per_cell: tuple[int, int] = (4, 4),
+    cmap: str = "viridis",
+) -> None:
+    """Scatter-plot grid with embeddings as rows and labeling methods as columns.
+
+    Each row represents a unique 2D embedding (lexicographically sorted).
+    Each column represents a labeling method / cluster column.
+
+    # Parameters:
+     - `df : pd.DataFrame`
+        DataFrame returned by `coactivation_analysis`
+     - `metadata : DataFrameMetadata`
+        Metadata returned by `coactivation_analysis`
+     - `embedding_axes : tuple[int, int]`
+        Axes (defaults to `(0, 1)`) used for the 2D projection
+     - `label_columns : list[str] | None`
+        Which label columns to plot; `None` selects **all** columns
+        in `metadata.column_groups["feat.class"]`
+     - `alpha : float`
+        Transparency for points (defaults to `0.8`)
+     - `point_size : int`
+        Marker size (defaults to `8`)
+     - `figsize_per_cell : tuple[int, int]`
+        Base size of each subplot in inches (defaults to `(4, 4)`)
+     - `cmap : str`
+        Matplotlib colormap name (defaults to `"viridis"`)
+
+    # Returns:
+     - `None`
+        The function displays the figure via `matplotlib`.
+
+    # Usage:
+    ```python
+    plot_embedding_label_grid(df, metadata)
+    ```
+
+    # Raises:
+     - `KeyError` : if no suitable embeddings or label columns are found
+    """
+    ax0: int
+    ax1: int
+    ax0, ax1 = embedding_axes
+
+    # -------- prepare embedding bases --------
+    embed_cols: list[str] = metadata.column_groups.get("embed", [])
+    base_to_axes: dict[str, dict[int, str]] = {}
+    for col in embed_cols:
+        base: str
+        axis_str: str
+        if ".ax." not in col:
+            continue
+        base, axis_str = col.rsplit(".ax.", 1)
+        axis: int = int(axis_str)
+        base_to_axes.setdefault(base, {})[axis] = col
+
+    # keep only embeddings having requested axes
+    needed_axes: set[int] = {ax0, ax1}
+    embeddings: dict[str, dict[int, str]] = {
+        b: axes for b, axes in base_to_axes.items() if needed_axes.issubset(axes)
+    }
+    if not embeddings:
+        raise KeyError("No embeddings with the requested axes found.")
+
+    # sort embeddings lexicographically
+    embedding_bases: list[str] = sorted(embeddings.keys())
+
+    # -------- prepare label columns --------
+    if label_columns is None:
+        label_columns = metadata.column_groups.get("feat.class", [])
+    if not label_columns:
+        raise KeyError("No labeling columns provided or found.")
+
+    label_columns_sorted: list[str] = sorted(label_columns)
+
+    # -------- data masks --------
+    alive_mask: np.ndarray[Any, np.dtype[np.bool_]] = df["feat.alive"].to_numpy(dtype=bool)
+
+    # -------- figure setup --------
+    n_rows: int = len(embedding_bases)
+    n_cols: int = len(label_columns_sorted)
+    fig_w: int
+    fig_h: int
+    cell_w: int
+    cell_h: int
+    cell_w, cell_h = figsize_per_cell
+    fig_w = n_cols * cell_w
+    fig_h = n_rows * cell_h
+
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(fig_w, fig_h),
+        squeeze=False,
+    )
+    for r, base in enumerate(embedding_bases):
+        axes_map: dict[int, str] = embeddings[base]
+        x_all: np.ndarray[Any, np.dtype[Any]] = df[axes_map[ax0]].to_numpy()
+        y_all: np.ndarray[Any, np.dtype[Any]] = df[axes_map[ax1]].to_numpy()
+        x: np.ndarray[Any, np.dtype[Any]] = x_all[alive_mask]
+        y: np.ndarray[Any, np.dtype[Any]] = y_all[alive_mask]
+
+        for c, label_col in enumerate(label_columns_sorted):
+            ax = axes[r, c]
+            label_values: np.ndarray[Any, np.dtype[Any]] | None = (
+                df[label_col].to_numpy()[alive_mask] if label_col in df.columns else None
+            )
+            if label_values is not None:
+                scatter = ax.scatter(
+                    x,
+                    y,
+                    c=label_values,
+                    s=point_size,
+                    alpha=alpha,
+                    cmap=cmap,
+                )
+            else:
+                scatter = ax.scatter(
+                    x,
+                    y,
+                    s=point_size,
+                    alpha=alpha,
+                    color="black",
+                )
+
+            if r == 0:
+                ax.set_title(label_col, fontsize=9)
+            if c == 0:
+                ax.set_ylabel(base, fontsize=8)
+
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+            # optional per-axis colorbar (comment out next two lines to disable)
+            if label_values is not None:
+                fig.colorbar(scatter, ax=ax, shrink=0.6)
+
+    # remove empty axes if any (unlikely here)
+    for ax in axes.flat:
+        if not ax.has_data():
+            ax.axis("off")
+
+    fig.tight_layout()
+    plt.show()
