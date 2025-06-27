@@ -8,6 +8,9 @@ import pandas as pd
 from jaxtyping import Float
 from sklearn.base import TransformerMixin
 
+from muutils.dbg import dbg_tensor
+
+from spd.analysis.grouping import CoactivationResultsGroup
 from spd.analysis.embedding import (
     ClusteringMethod,
     NDArray,
@@ -16,9 +19,6 @@ from spd.analysis.embedding import (
     get_comp_dist_mat,
     get_embedding_model,
 )
-
-# Import your existing types and functions
-from spd.analysis.grouping import CoactivationResultsGroup
 
 
 @dataclass
@@ -271,10 +271,10 @@ def coactivation_analysis(
     if config.alive_only:
         df = df[df["feat.alive"]]
 
-    # every "feat.class.*" column should be a string category
+    # every "feat.class.*" column should be a string
     feat_class_cols = [col for col in df.columns if col.startswith("feat.class.")]
     for col in feat_class_cols:
-        df[col] = df[col].astype("category")
+        df[col] = df[col].astype("string")
 
     # Create metadata
     metadata = DataFrameMetadata(
@@ -309,7 +309,7 @@ def plot_embedding_label_grid(
     alpha: float = 0.8,
     point_size: int = 8,
     figsize_per_cell: tuple[int, int] = (4, 4),
-    cmap: str = "tab10",
+    cmap: str = "hsv",
 ) -> None:
     """Scatter-plot grid with embeddings as rows and labeling methods as columns.
 
@@ -414,11 +414,20 @@ def plot_embedding_label_grid(
             label_values: np.ndarray[Any, np.dtype[Any]] | None = (
                 df[label_col].to_numpy()[alive_mask] if label_col in df.columns else None
             )
+            label_values = np.array([int(v) for v in label_values])
+            label_range: float = float(label_values.max() - label_values.min())
+            label_values_normed = (
+                (label_values - label_values.min()) / label_range
+                if label_range > 0
+                else label_values
+            )
+            # print(label_values_normed)
+            # dbg_tensor(label_values_normed)
             if label_values is not None:
                 scatter = ax.scatter(
                     x,
                     y,
-                    c=label_values,
+                    c=label_values_normed,
                     s=point_size,
                     alpha=alpha,
                     cmap=cmap,
