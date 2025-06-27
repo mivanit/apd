@@ -1,0 +1,19 @@
+program: spd/experiments/resid_mlp/resid_mlp_decomposition.py
+project: base_10
+method: grid
+metric:
+  name: total_loss
+  goal: minimize
+parameters:
+  p_anneal_start_frac: 
+    values: [0.25]
+  p_anneal_final_p:
+    values: [1] 
+  seed:
+    values: [10,11,12,13,14,15,16,17,18,19]
+  
+command:
+- ${env}
+- ${interpreter}
+- ${program}
+- spd/experiments/resid_mlp/3layer_tuning/resid_mlp_config_3layer_long.yaml

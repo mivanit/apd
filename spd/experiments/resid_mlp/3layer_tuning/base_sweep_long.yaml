@@ -1,0 +1,17 @@
+program: spd/experiments/resid_mlp/resid_mlp_decomposition.py
+project: nathu-spd-resid-mlp
+method: grid
+metric:
+  name: total_loss
+  goal: minimize
+parameters:
+  seed:
+    values: [0, 1, 2, 3]
+  n_gate_hidden_neurons:
+    values: [16, 128] 
+  
+command:
+- ${env}
+- ${interpreter}
+- ${program}
+- spd/experiments/resid_mlp/3layer_tuning/resid_mlp_config_3layer_long.yaml

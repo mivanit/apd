@@ -1,0 +1,19 @@
+program: spd/experiments/resid_mlp/resid_mlp_decomposition.py
+project: nathu-spd-resid-mlp
+method: grid
+metric:
+  name: total_loss
+  goal: minimize
+parameters:
+  seed:
+    values: [0, 1, 2, 3]
+  pnorm: 
+    values: [1, 2]
+  lr_schedule:
+    values: ["constant", "cosine"]    
+  
+command:
+- ${env}
+- ${interpreter}
+- ${program}
+- spd/experiments/resid_mlp/3layer_tuning/resid_mlp_config_3layer.yaml

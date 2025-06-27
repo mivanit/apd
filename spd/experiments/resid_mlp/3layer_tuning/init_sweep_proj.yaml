@@ -1,0 +1,18 @@
+program: spd/experiments/resid_mlp/resid_mlp_decomposition.py
+name: AB_init_sweep
+project: nathu-spd-resid-mlp
+method: grid
+metric:
+  name: total_loss
+  goal: minimize
+parameters:
+  seed:
+    values: [0, 1, 2, 3]
+  init_method:
+    values: ["proj"] 
+  
+command:
+- ${env}
+- ${interpreter}
+- ${program}
+- spd/experiments/resid_mlp/3layer_tuning/resid_mlp_config_3layer.yaml

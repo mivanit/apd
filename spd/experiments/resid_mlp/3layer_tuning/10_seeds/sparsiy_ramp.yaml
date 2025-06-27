@@ -1,0 +1,21 @@
+program: spd/experiments/resid_mlp/resid_mlp_decomposition.py
+project: base_10
+method: grid
+metric:
+  name: total_loss
+  goal: minimize
+parameters:
+  lp_sparsity_ramp_frac:
+    values: [1.0]
+  lp_sparsity_coeff:
+    values: [1e-5, 3e-5]
+  lp_sparsity_initial_coeff:
+    values: [5e-6]
+  seed:
+    values: [10,11,12,13,14,15,16,17,18,19]
+  
+command:
+- ${env}
+- ${interpreter}
+- ${program}
+- spd/experiments/resid_mlp/3layer_tuning/resid_mlp_config_3layer_long.yaml
