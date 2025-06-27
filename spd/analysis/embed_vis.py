@@ -26,15 +26,15 @@ class AnalysisConfig:
     """Configuration for the comprehensive analysis."""
 
     # Embedding methods and their hyperparameters
-    embedding_configs: dict[ReduceMethod, dict[str, list[Any]]] = None
+    embedding_configs: dict[ReduceMethod, dict[str, list[Any]]]
 
     # Clustering methods and their hyperparameters
-    clustering_configs: dict[ClusteringMethod, dict[str, list[Any]]] = None
+    clustering_configs: dict[ClusteringMethod, dict[str, list[Any]]]
 
     # Hierarchical clustering config
-    hclust_threshold: float = 0.8
+    hclust_threshold: float = 0.01
     hclust_linkage: Literal["single", "complete", "average", "ward"] = "average"
-    hclust_min_alive_counts: int = 500
+    hclust_min_alive_counts: int = 0
 
     # Distance matrix config
     dist_epsilon: float = 1.0
@@ -47,23 +47,24 @@ class AnalysisConfig:
     n_components: int = 3
 
     alive_only: bool = True
+    
 
-    def __post_init__(self) -> None:
-        if self.embedding_configs is None:
-            self.embedding_configs = {
-                "umap": {"n_neighbors": [2, 4, 8, 16, 32, 64, 128]},
-                "isomap": {"n_neighbors": [2, 4, 8, 16, 32, 64, 128]},
-                "tsne": {"perplexity": [5, 10, 20, 30, 50]},
-            }
+    # def __post_init__(self) -> None:
+    #     if self.embedding_configs is None:
+    #         self.embedding_configs = {
+    #             "umap": {"n_neighbors": [2, 4, 8, 16, 32, 64, 128]},
+    #             "isomap": {"n_neighbors": [2, 4, 8, 16, 32, 64, 128]},
+    #             "tsne": {"perplexity": [5, 10, 20, 30, 50]},
+    #         }
 
-        if self.clustering_configs is None:
-            self.clustering_configs = {
-                "kmeans": {"n_clusters": [3, 5, 8, 10, 15, 20]},
-                "agglomerative": {"n_clusters": [3, 5, 8, 10, 15, 20]},
-                "spectral": {"n_clusters": [3, 5, 8, 10, 15, 20]},
-                "dbscan": {"eps": [0.05, 0.1, 0.2, 0.3, 0.5]},
-                "optics": {"min_samples": [3, 5, 10, 20]},
-            }
+    #     if self.clustering_configs is None:
+    #         self.clustering_configs = {
+    #             "kmeans": {"n_clusters": [3, 5, 8, 10, 15, 20]},
+    #             "agglomerative": {"n_clusters": [3, 5, 8, 10, 15, 20]},
+    #             "spectral": {"n_clusters": [3, 5, 8, 10, 15, 20]},
+    #             "dbscan": {"eps": [0.05, 0.1, 0.2, 0.3, 0.5]},
+    #             "optics": {"min_samples": [3, 5, 10, 20]},
+    #         }
 
 
 @dataclass
@@ -97,7 +98,7 @@ class DataFrameMetadata:
 
 def _format_hyperparam_str(params: dict[str, Any]) -> str:
     """Format hyperparameters into a standardized string representation."""
-    return ".".join(f"{k}-{v}" for k, v in sorted(params.items()))
+    return ".".join(f"{k}-{str(v).zfill(3)}" for k, v in sorted(params.items()))
 
 
 def coactivation_analysis(
@@ -153,7 +154,7 @@ def coactivation_analysis(
 
     # Track metadata
     column_groups: dict[str, list[str]] = {
-        "feat": ["feat.alive", "feat.activation_freq", "feat.module"],
+        "feat": ["feat.alive", "feat.activation_freq", "feat.activation_freq_log", "feat.module"],
         "embed": [],
         "feat.class": [],
     }
@@ -308,7 +309,7 @@ def plot_embedding_label_grid(
     alpha: float = 0.8,
     point_size: int = 8,
     figsize_per_cell: tuple[int, int] = (4, 4),
-    cmap: str = "viridis",
+    cmap: str = "tab10",
 ) -> None:
     """Scatter-plot grid with embeddings as rows and labeling methods as columns.
 
@@ -438,10 +439,6 @@ def plot_embedding_label_grid(
 
             ax.set_xticks([])
             ax.set_yticks([])
-
-            # optional per-axis colorbar (comment out next two lines to disable)
-            if label_values is not None:
-                fig.colorbar(scatter, ax=ax, shrink=0.6)
 
     # remove empty axes if any (unlikely here)
     for ax in axes.flat:
