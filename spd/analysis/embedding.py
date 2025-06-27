@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
+from itertools import product
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,6 +11,14 @@ from muutils.dbg import dbg_tensor
 from sklearn.base import TransformerMixin
 from sklearn.manifold import TSNE, Isomap
 from umap import UMAP
+from sklearn.cluster import (
+    KMeans,
+    AgglomerativeClustering,
+    SpectralClustering,
+    DBSCAN,
+    OPTICS,
+)
+
 
 from spd.analysis.grouping import CoactivationResultsGroup
 
@@ -17,14 +26,20 @@ from spd.analysis.grouping import CoactivationResultsGroup
 NDArray = np.ndarray[Any, Any]
 
 ReduceMethod = Literal["umap", "isomap", "tsne"]
-ParamValue = int | float | str
-
+ReduceMethodParam = int | float | str
+ClusteringMethod = Literal[
+    "kmeans",
+    "agglomerative",
+    "spectral",
+    "dbscan",
+    "optics",
+]
 
 @dataclass
 class EmbeddingResult:
     method: ReduceMethod
     param_name: str
-    param_values: list[ParamValue]
+    param_values: list[ReduceMethodParam]
     embeddings: dict[str, Float[NDArray, "n_components n_features"]]
 
 
@@ -34,23 +49,48 @@ def get_embedding_model(
     n_components: int = 2,
     random_state: int | None = None,
 ) -> TransformerMixin:
-    """Return configured embedding model."""
-    if method == "umap":
-        return UMAP(
-            n_components=n_components, metric="precomputed", random_state=random_state, **kwargs
-        )  # type: ignore
-    elif method == "isomap":
-        return Isomap(n_components=n_components, metric="precomputed", **kwargs)
-    elif method == "tsne":
-        return TSNE(  # type: ignore
-            n_components=n_components,
-            metric="precomputed",
-            random_state=random_state,
-            init="random",
-            learning_rate="auto",
-            **kwargs,
-        )
-    raise ValueError(f"Unsupported method: {method}")
+    """Return a configured embedding model (match-case style)."""
+    match method:
+        case "umap":
+            return UMAP(
+                n_components=n_components,
+                metric="precomputed",
+                random_state=random_state,
+                **kwargs,  # type: ignore[arg-type]
+            )
+        case "isomap":
+            return Isomap(n_components=n_components, metric="precomputed", **kwargs)
+        case "tsne":
+            return TSNE(  # type: ignore[arg-type]
+                n_components=n_components,
+                metric="precomputed",
+                random_state=random_state,
+                init="random",
+                learning_rate="auto",
+                **kwargs,
+            )
+        case _:
+            raise ValueError(f"Unsupported embedding method: {method}")
+
+def get_clustering_model(
+    method: ClusteringMethod,
+    kwargs: dict[str, Any],
+    random_state: int | None = None,
+) -> Any:
+    """Return a configured clustering model (match-case style)."""
+    match method:
+        case "kmeans":
+            return KMeans(random_state=random_state, **kwargs)
+        case "agglomerative":
+            return AgglomerativeClustering(**kwargs)
+        case "spectral":
+            return SpectralClustering(random_state=random_state, **kwargs)
+        case "dbscan":
+            return DBSCAN(**kwargs)
+        case "optics":
+            return OPTICS(**kwargs)
+        case _:
+            raise ValueError(f"Unsupported clustering method: {method}")
 
 
 def compute_embedding_sweep(
@@ -73,7 +113,7 @@ def sweep_embedding_param(
     dist: NDArray,
     method: ReduceMethod,
     param_name: str,
-    param_values: list[ParamValue],
+    param_values: list[ReduceMethodParam],
     n_components: int = 2,
     random_state: int | None = None,
 ) -> EmbeddingResult:
@@ -92,8 +132,10 @@ def sweep_embedding_param(
 def plot_embedding_result(
     result: EmbeddingResult,
     figsize: tuple[int, int] | None = None,
+    cluster_labels: dict[str, NDArray] | None = None,
+    cmap: str = "tab10",
 ) -> None:
-    """Plot all 2D embeddings in a row."""
+    """Plot all 2-D embeddings (optionally color by clusters)."""
     n: int = len(result.param_values)
     figsize = figsize or (4 * n, 4)
     axes: Sequence[plt.Axes]
@@ -101,12 +143,13 @@ def plot_embedding_result(
     for ax, param_val in zip(axes, result.param_values, strict=True):
         key: str = f"{result.param_name}={param_val}"
         emb: NDArray = result.embeddings[key]
-        ax.scatter(emb[:, 0], emb[:, 1])
+        c = None if cluster_labels is None else cluster_labels.get(key, None)
+        ax.scatter(emb[:, 0], emb[:, 1], c=c, cmap=cmap)
         ax.set_title(f"{result.method.upper()} {key}")
         ax.grid(True)
-
     plt.tight_layout()
     plt.show()
+
 
 
 def get_comp_dist_mat(
@@ -144,3 +187,102 @@ def get_comp_dist_mat(
         plt.show()
 
     return dist
+
+
+def cluster_in_embedding(
+    dist: Float[NDArray, "n n"],
+    *,
+    embedding_method: ReduceMethod,
+    embedding_params: dict[str, Any] | None = None,
+    clustering_method: ClusteringMethod = "kmeans",
+    clustering_params: dict[str, Any] | None = None,
+    n_components: int = 2,
+    random_state: int | None = None,
+) -> list[int]:
+    """Embed a pre-computed distance matrix **then** cluster it.
+
+    # Parameters:
+     - `dist : Float[NDArray, "n n"]`
+        Square distance matrix.
+     - `embedding_method : ReduceMethod`
+        `"umap" | "isomap" | "tsne"`.
+     - `embedding_params : dict[str, Any]`
+        Extra kwargs for the embedder (defaults to `{}`).
+     - `clustering_method : ClusteringMethod`
+        `"kmeans" | "agglomerative" | "spectral" | "dbscan" | "optics"`.
+     - `clustering_params : dict[str, Any]`
+        Extra kwargs for the clusterer (defaults to `{}`).
+     - `n_components : int`
+        Embedding dimensionality (defaults to `2`).
+     - `random_state : int | None`
+        RNG seed for reproducibility.
+
+    # Returns:
+     - `list[int]`
+        Cluster label for each sample.
+    """
+    embedding_params = embedding_params or {}
+    clustering_params = clustering_params or {}
+
+    emb_model: TransformerMixin = get_embedding_model(
+        embedding_method,
+        embedding_params,
+        n_components=n_components,
+        random_state=random_state,
+    )
+    emb: Float[NDArray, "n_components n_features"] = emb_model.fit_transform(dist)
+
+    cls_model = get_clustering_model(clustering_method, clustering_params, random_state)
+    labels: NDArray = cls_model.fit_predict(emb)
+
+    return labels.tolist()
+
+
+def sweep_embeddings_and_clusters(
+    dist: Float[NDArray, "n n"],
+    *,
+    n_clusters: int = 5,
+    random_state: int | None = 0,
+    cmap: str = "tab10",
+) -> None:
+    """Plot every (embedding, clustering) combination on a single figure."""
+    # --- hyper-param specs -------------------------------------------------- #
+    embedding_methods: list[ReduceMethod] = ["umap", "isomap", "tsne"]
+
+    clustering_specs: dict[ClusteringMethod, dict[str, Any]] = {
+        "kmeans": {"n_clusters": n_clusters},
+        "agglomerative": {"n_clusters": n_clusters},
+        "spectral": {"n_clusters": n_clusters},
+        "dbscan": {"eps": 0.1},  # tweak as needed
+        "optics": {},            # defaults are fine
+    }
+
+    # --- canvas ------------------------------------------------------------- #
+    n_rows, n_cols = len(embedding_methods), len(clustering_specs)
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(4 * n_cols, 4 * n_rows),
+        squeeze=False,
+    )
+
+    # --- sweep -------------------------------------------------------------- #
+    for row, emb_method in enumerate(embedding_methods):
+        emb_model = get_embedding_model(
+            emb_method, {}, n_components=2, random_state=random_state
+        )
+        emb: NDArray = emb_model.fit_transform(dist)
+
+        for col, (cls_method, cls_kwargs) in enumerate(clustering_specs.items()):
+            cls_model = get_clustering_model(
+                cls_method, cls_kwargs, random_state=random_state
+            )
+            labels: NDArray = cls_model.fit_predict(emb)
+
+            ax = axes[row][col]
+            ax.scatter(emb[:, 0], emb[:, 1], c=labels, cmap=cmap)
+            ax.set_title(f"{emb_method}-{cls_method}")
+            ax.grid(True)
+
+    plt.tight_layout()
+    plt.show()
