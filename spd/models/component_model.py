@@ -69,15 +69,23 @@ class ComponentModel(nn.Module):
             "scaled_sigmoid_gate_mlp": ScaledSigmoidGateMLP,
             "bounded_gate_mlp": BoundedGateMLP,
         }
-        
+
         # Determine gate class and kwargs
         gate_class = gate_classes.get(gate_type)
         if gate_class is None:
-            raise ValueError(f"Unknown gate_type: {gate_type}. Options: {list(gate_classes.keys())}")
-        
+            raise ValueError(
+                f"Unknown gate_type: {gate_type}. Options: {list(gate_classes.keys())}"
+            )
+
         # Build kwargs based on gate requirements
         gate_kwargs = {"m": m}
-        if gate_class in (GateMLP, SigmoidGateMLP, SwishSigmoidGateMLP, ScaledSigmoidGateMLP, BoundedGateMLP):
+        if gate_class in (
+            GateMLP,
+            SigmoidGateMLP,
+            SwishSigmoidGateMLP,
+            ScaledSigmoidGateMLP,
+            BoundedGateMLP,
+        ):
             if n_gate_hidden_neurons is None:
                 # Fall back to simple Gate for backwards compatibility
                 gate_class = Gate
@@ -297,12 +305,15 @@ class ComponentModel(nn.Module):
             m=config.m,
             n_gate_hidden_neurons=config.n_gate_hidden_neurons,
             pretrained_model_output_attr=config.pretrained_model_output_attr,
-            gate_type=getattr(config, "gate_type", "gate_mlp"),  # Default to gate_mlp for backwards compatibility
+            gate_type=getattr(
+                config, "gate_type", "gate_mlp"
+            ),  # Default to gate_mlp for backwards compatibility
         )
         comp_model.load_state_dict(model_weights)
         return comp_model, config, out_dir
 
 
+@torch.no_grad()
 def init_As_and_Bs_(
     model: ComponentModel, components: dict[str, LinearComponent | EmbeddingComponent]
 ) -> None:
@@ -330,3 +341,95 @@ def init_As_and_Bs_(
         m_norms = einops.einsum(A, B, target_weight, "d_in m, m d_out, d_out d_in -> m")
         # Scale B by the inner product.
         B.data[:] = B.data * m_norms.unsqueeze(-1)
+
+
+@torch.no_grad()
+def init_As_and_Bs_pinv(
+    model: ComponentModel, components: dict[str, LinearComponent | EmbeddingComponent]
+) -> None:
+    """Initialize the A and B matrices using pseudoinverse.
+    1. Generate random A matrix
+    2. Compute pseudoinverse of A
+    3. Find minimum norm solution B = A^+ @ W^T
+    4. This gives the least squares solution for W ≈ B^T @ A^T
+    """
+    # NOTE: This may increase memory usage if done on GPU.
+    for param_name, component in components.items():
+        A = component.A
+        B = component.B
+        target_weight = model.model.get_parameter(param_name + ".weight")
+        if isinstance(component, EmbeddingComponent):
+            target_weight = target_weight.T  # (d_out d_in)
+
+        # Initialize A with random values
+        A.data[:] = torch.randn_like(A.data)
+        A.data[:] = A.data / A.data.norm(dim=-2, keepdim=True)
+        # Compute pseudoinverse of A
+        # A has shape (d_in, m), so A^+ has shape (m, d_in)
+        A_pinv = torch.linalg.pinv(A)
+        
+        # Minimum norm solution: B = A^+ @ W^T
+        # A^+ shape: (m, d_in), target_weight shape: (d_out, d_in)
+        # Result B shape: (m, d_out)
+        B.data[:] = einops.einsum(
+            A_pinv, target_weight, "m d_in, d_out d_in -> m d_out"
+        )
+
+
+@torch.no_grad()
+def init_As_and_Bs_zeroB(
+    model: ComponentModel, components: dict[str, LinearComponent | EmbeddingComponent]
+) -> None:
+    """Initialize the A and B matrices.
+    A is initialized to random values with unit norm in the d_in dimension.
+    B is initialized to zero.
+    """
+    # NOTE: This may increase memory usage if done on GPU.
+    for _, component in components.items():
+        A = component.A
+        B = component.B
+        
+        # Make A and B have unit norm in the d_in and d_out dimensions
+        A.data[:] = torch.randn_like(A.data)
+        A.data[:] = A.data / A.data.norm(dim=-2, keepdim=True)
+        B.data[:] = torch.zeros_like(B.data)
+
+
+@torch.no_grad()
+def init_As_and_Bs_proj(
+    model: ComponentModel, components: dict[str, LinearComponent | EmbeddingComponent]
+) -> None:
+    """Initialize the A and B matrices with inner product scaling plus optimal scaling.
+    1. Normalize every component A to 1.
+    2. Let each B column be what the A column gets mapped to in the target model.
+    3. Find additional scalar for B to minimize distance from target weight
+    """
+    # NOTE: This may increase memory usage if done on GPU.
+    for param_name, component in components.items():
+        A = component.A
+        B = component.B
+        target_weight = model.model.get_parameter(param_name + ".weight")
+        if isinstance(component, EmbeddingComponent):
+            target_weight = target_weight.T  # (d_out d_in)
+
+        # Initialize A to random values with unit norm
+        A.data[:] = torch.randn_like(A.data)
+        A.data[:] = A.data / A.data.norm(dim=-2, keepdim=True)
+        
+        # Project A onto target weight to get B
+        B.data[:] = einops.einsum(A, target_weight, "d_in m, d_out d_in -> m d_out")
+        
+        # Now find additional optimal scalar to minimize distance
+        # Compute A @ B with the current scaling
+        reconstructed = einops.einsum(A, B, "d_in m, m d_out -> d_out d_in")
+        
+        # Compute optimal scalar to minimize ||target - scalar * reconstructed||_F
+        # The optimal scalar is: <target, reconstructed> / <reconstructed, reconstructed>
+        numerator = (target_weight * reconstructed).sum()
+        denominator = (reconstructed * reconstructed).sum()
+        
+        optimal_scalar = numerator / denominator
+        print(f"Optimal scalar for {param_name}: {optimal_scalar.item()}")
+        
+        # Apply additional scaling to all of B
+        B.data[:] = B.data * optimal_scalar

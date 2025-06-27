@@ -164,30 +164,64 @@ def get_annealed_p(
     p_anneal_final_p: float | None,
 ) -> float:
     """Calculate the annealed p value for L_p sparsity loss.
-    
+
     Args:
         step: Current training step
         steps: Total training steps
         initial_p: Initial p value
         p_anneal_start_frac: Fraction of training after which to start annealing
         p_anneal_final_p: Final p value to anneal to (None means no annealing)
-    
+
     Returns:
         The current p value
     """
     if p_anneal_final_p is None or p_anneal_start_frac >= 1.0:
         return initial_p
-    
+
     anneal_start_step = int(steps * p_anneal_start_frac)
-    
+
     if step < anneal_start_step:
         return initial_p
-    
+
     # Linear annealing from initial_p to p_anneal_final_p
     progress = (step - anneal_start_step) / (steps - anneal_start_step)
     progress = min(progress, 1.0)  # Clamp to [0, 1]
-    
+
     return initial_p + progress * (p_anneal_final_p - initial_p)
+
+
+def get_ramped_sparsity_coeff(
+    step: int,
+    steps: int,
+    target_coeff: float,
+    ramp_frac: float,
+    initial_coeff: float = 0.0,
+) -> float:
+    """Calculate the ramped sparsity coefficient for L_p sparsity loss.
+
+    Args:
+        step: Current training step
+        steps: Total training steps
+        target_coeff: Target sparsity coefficient to ramp up to
+        ramp_frac: Fraction of training over which to ramp up from initial_coeff (0.0 means no ramping)
+        initial_coeff: Initial sparsity coefficient to start ramping from
+
+    Returns:
+        The current sparsity coefficient
+    """
+    if ramp_frac <= 0.0:
+        return target_coeff
+
+    ramp_end_step = int(steps * ramp_frac)
+
+    if step >= ramp_end_step:
+        return target_coeff
+
+    # Linear ramping from initial_coeff to target_coeff
+    progress = step / ramp_end_step
+    progress = min(progress, 1.0)  # Clamp to [0, 1]
+
+    return initial_coeff + progress * (target_coeff - initial_coeff)
 
 
 def replace_deprecated_param_names(

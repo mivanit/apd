@@ -81,7 +81,7 @@ def main(
         assert wandb.run, "wandb.run must be initialized before training"
         wandb.run.name = run_name
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-    out_dir = Path('/nlp/scr/nathu/apd/tms') / "out" / f"{run_name}_{timestamp}"
+    out_dir = Path("/nlp/scr/nathu/apd/tms") / "out" / f"{run_name}_{timestamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     with open(out_dir / "final_config.yaml", "w") as f:

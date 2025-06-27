@@ -193,7 +193,7 @@ def run_train(config: ResidMLPTrainConfig, device: str) -> Float[Tensor, ""]:
         f"{model_cfg.out_bias}_loss{config.loss_type}"
     )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-    out_dir = Path('/nlp/scr/nathu/apd/resid_mlp') / "out" / f"{run_name}_{timestamp}"
+    out_dir = Path("/nlp/scr/nathu/apd/resid_mlp") / "out" / f"{run_name}_{timestamp}"
 
     model = ResidualMLP(config=model_cfg).to(device)
 
@@ -289,7 +289,7 @@ if __name__ == "__main__":
     #     n_batches_final_losses=10,
     # )
 
-    #3 layer mlp config
+    # 3 layer mlp config
     config = ResidMLPTrainConfig(
         wandb_project="spd-train-resid-mlp",
         seed=0,
@@ -310,7 +310,7 @@ if __name__ == "__main__":
         importance_val=1,
         data_generation_type="at_least_zero_active",
         batch_size=2048,
-        steps=10_000, # 2-layer and 3-layer
+        steps=10_000,  # 2-layer and 3-layer
         print_freq=100,
         lr=3e-3,
         lr_schedule="cosine",

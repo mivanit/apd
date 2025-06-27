@@ -25,7 +25,7 @@ from spd.losses import (
     calc_param_match_loss,
     calc_schatten_loss,
 )
-from spd.models.component_model import ComponentModel, init_As_and_Bs_
+from spd.models.component_model import ComponentModel, init_As_and_Bs_, init_As_and_Bs_pinv, init_As_and_Bs_zeroB, init_As_and_Bs_proj
 from spd.models.component_utils import (
     calc_component_acts,
     calc_mask_l_zero,
@@ -52,6 +52,7 @@ from spd.utils import (
     get_annealed_p,
     get_lr_schedule_fn,
     get_lr_with_warmup,
+    get_ramped_sparsity_coeff,
 )
 
 
@@ -68,11 +69,17 @@ def get_common_run_name_suffix(config: Config) -> str:
     if config.p_anneal_final_p is not None and config.p_anneal_start_frac < 1.0:
         run_suffix += f"panneal{config.p_anneal_start_frac:.2f}-{config.p_anneal_final_p:.2e}_"
     run_suffix += f"lpsp{config.lp_sparsity_coeff:.2e}_"
+    # Add sparsity ramping info if actually used
+    if config.lp_sparsity_ramp_frac > 0.0:
+        run_suffix += f"spramp{config.lp_sparsity_ramp_frac:.2f}_"
+        if config.lp_sparsity_initial_coeff > 0.0:
+            run_suffix += f"spini{config.lp_sparsity_initial_coeff:.2e}_"
     run_suffix += f"m{config.m}_"
     run_suffix += f"sd{config.seed}_"
     run_suffix += f"lr{config.lr:.2e}_"
     run_suffix += f"bs{config.batch_size}_"
     run_suffix += f"gt{config.gate_type}_"
+    run_suffix += f"init{config.init_method}_"
     return run_suffix
 
 
@@ -113,7 +120,16 @@ def optimize(
     }  # type: ignore
 
     model.to(device)
-    init_As_and_Bs_(model=model, components=components)
+    
+    # Select initialization method based on config
+    init_functions = {
+        "default": init_As_and_Bs_,
+        "pinv": init_As_and_Bs_pinv,
+        "zero_b": init_As_and_Bs_zeroB,
+        "proj": init_As_and_Bs_proj,
+    }
+    init_fn = init_functions[config.init_method]
+    init_fn(model=model, components=components)
 
     if tied_weights is not None:
         # Tie component weights. Assume that the first element is a transpose of the second element
@@ -273,8 +289,18 @@ def optimize(
             p_anneal_final_p=config.p_anneal_final_p,
         )
         log_data["current_p"] = current_p
+        
+        current_sparsity_coeff = get_ramped_sparsity_coeff(
+            step=step,
+            steps=config.steps,
+            target_coeff=config.lp_sparsity_coeff,
+            ramp_frac=config.lp_sparsity_ramp_frac,
+            initial_coeff=config.lp_sparsity_initial_coeff,
+        )
+        log_data["current_sparsity_coeff"] = current_sparsity_coeff
+        
         lp_sparsity_loss = calc_lp_sparsity_loss(sparsity_masks=sparsity_masks, pnorm=current_p)
-        total_loss += config.lp_sparsity_coeff * lp_sparsity_loss
+        total_loss += current_sparsity_coeff * lp_sparsity_loss
         loss_terms["loss/lp_sparsity_loss"] = lp_sparsity_loss.item()
 
         ####### Schatten loss #######
@@ -430,10 +456,18 @@ def optimize(
                 fig_dict.update(mask_histogram_figs)
 
                 mean_component_activation_counts = component_activation_statistics(
-                    model=model, dataloader=eval_loader, n_steps=n_eval_steps, device=device, cutoff=0.0
+                    model=model,
+                    dataloader=eval_loader,
+                    n_steps=n_eval_steps,
+                    device=device,
+                    cutoff=0.0,
                 )[1]
                 mean_component_activation_counts_01 = component_activation_statistics(
-                    model=model, dataloader=eval_loader, n_steps=n_eval_steps, device=device, cutoff=0.1
+                    model=model,
+                    dataloader=eval_loader,
+                    n_steps=n_eval_steps,
+                    device=device,
+                    cutoff=0.1,
                 )[1]
                 assert mean_component_activation_counts is not None
                 assert mean_component_activation_counts_01 is not None
@@ -457,11 +491,11 @@ def optimize(
                             images_dict[k] = wandb.Image(v)
                         except:
                             metrics_dict[k] = v
-                    
+
                     # Log images and metrics together
                     log_dict = {**images_dict, **metrics_dict}
                     wandb.log(log_dict, step=step)
-                    
+
                     if out_dir is not None:
                         for k, v in fig_dict.items():
                             try:

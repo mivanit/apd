@@ -118,9 +118,20 @@ class Config(BaseModel):
         default=None,
         description="Hidden dimension for the gate MLP; if None, use a single-layer gate",
     )
-    gate_type: Literal["gate", "gate_mlp", "sigmoid_gate_mlp", "swish_sigmoid_gate_mlp", "scaled_sigmoid_gate_mlp", "bounded_gate_mlp"] = Field(
+    gate_type: Literal[
+        "gate",
+        "gate_mlp",
+        "sigmoid_gate_mlp",
+        "swish_sigmoid_gate_mlp",
+        "scaled_sigmoid_gate_mlp",
+        "bounded_gate_mlp",
+    ] = Field(
         default="gate_mlp",
         description="Type of gate to use: 'gate' for simple Gate, 'gate_mlp' for GateMLP, 'sigmoid_gate_mlp' for SigmoidGateMLP, 'swish_sigmoid_gate_mlp' for SwishSigmoidGateMLP, 'scaled_sigmoid_gate_mlp' for ScaledSigmoidGateMLP, 'bounded_gate_mlp' for BoundedGateMLP",
+    )
+    init_method: Literal["default", "pinv", "zero_b", "proj"] = Field(
+        default="default",
+        description="Initialization method for A and B matrices: 'default' for original method, 'pinv' for pseudoinverse initialization, 'zero_b' for zero B initialization, 'proj' for projection-based initialization with optimal scaling",
     )
     target_module_patterns: list[str] = Field(
         ...,
@@ -179,6 +190,14 @@ class Config(BaseModel):
     p_anneal_final_p: PositiveFloat | None = Field(
         default=None,
         description="Final p value to anneal to (None means no annealing)",
+    )
+    lp_sparsity_ramp_frac: float = Field(
+        default=0.0,
+        description="Fraction of training over which to ramp up sparsity penalty from initial to full coefficient (0.0 means no ramping)",
+    )
+    lp_sparsity_initial_coeff: NonNegativeFloat = Field(
+        default=0.0,
+        description="Initial sparsity coefficient to start ramping from (only used if lp_sparsity_ramp_frac > 0)",
     )
     output_loss_type: Literal["mse", "kl"] = Field(
         ...,

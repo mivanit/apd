@@ -73,7 +73,7 @@ def resid_mlp_plot_results_fn(
         compute_identity_metrics=True,
         identity_metrics_modules=mlp_in_modules,
     )
-    
+
     # Add identity metrics to fig_dict (hackishly!)
     fig_dict.update(identity_metrics)
 
@@ -141,7 +141,7 @@ def main(
         assert wandb.run, "wandb.run must be initialized before training"
         wandb.run.name = run_name
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-    out_dir = Path('/nlp/scr/nathu/apd/resid_mlp') / "out" / f"{run_name}_{timestamp}"
+    out_dir = Path("/nlp/scr/nathu/apd/resid_mlp") / "out" / f"{run_name}_{timestamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Save config
