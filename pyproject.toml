@@ -30,6 +30,7 @@ dependencies = [
     "scikit-learn",
     "umap-learn>=0.5.7",
     "muutils",
+    "js-embedding-vis"
 ]
 
 [dependency-groups]
@@ -43,6 +44,7 @@ dev = [
 
 [tool.uv.sources]
     muutils = { git = "https://github.com/mivanit/muutils" }
+    js_embedding_vis = { git = "https://github.com/mivanit/js-embedding-vis/"}
 
 [tool.uv]
 	default-groups = ["dev"]

@@ -118,11 +118,11 @@ def sweep_embedding_param(
     random_state: int | None = None,
 ) -> EmbeddingResult:
     """Sweep a single hyperparameter and return results."""
-    with CollateWarnings(fmt="({count}x) {filename}:{lineno}\n  {category}: {message}"):
-        param_grid: list[dict[str, Any]] = [{param_name: val} for val in param_values]
-        embeddings: dict[str, NDArray] = compute_embedding_sweep(
-            dist, method, param_grid, n_components, random_state
-        )
+
+    param_grid: list[dict[str, Any]] = [{param_name: val} for val in param_values]
+    embeddings: dict[str, NDArray] = compute_embedding_sweep(
+        dist, method, param_grid, n_components, random_state
+    )
 
     return EmbeddingResult(
         method=method, param_name=param_name, param_values=param_values, embeddings=embeddings
