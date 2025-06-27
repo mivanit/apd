@@ -188,7 +188,7 @@ def collect_coactivations(
     return results
 
 
-def plot_hierarchical_clustering(
+def hierarchical_clustering(
     similarity_matrix: Float[Tensor, "n n"],
     labels: Sequence[str] | None = None,
     threshold: float = 0.5,
@@ -197,11 +197,8 @@ def plot_hierarchical_clustering(
     figsize: tuple[int, int] = (12, 6),
     cmap: str = "tab20",
     title: str | None = None,
-) -> tuple[
-    plt.Figure,
-    Int[np.ndarray, " n"],  # Cluster assignments for each element
-    Float[np.ndarray, "n n"],  # Hierarchical clustering linkage matrix
-]:
+    plot: bool = True,
+) -> dict[str, Any]:
     """
     Create a hierarchical clustering dendrogram with optional ground truth labels.
 
@@ -230,86 +227,105 @@ def plot_hierarchical_clustering(
         Cluster assignments for each element
     Z : array
         The hierarchical clustering linkage matrix
+    formerly:
+    tuple[
+        plt.Figure,
+        Int[np.ndarray, " n"],  # Cluster assignments for each element
+        Float[np.ndarray, "n n"],  # Hierarchical clustering linkage matrix
+    ]:
     """
     # Convert similarity to distance
     distance_matrix = 1 - similarity_matrix
     condensed_dist = squareform(distance_matrix)
 
     # Perform hierarchical clustering
-    Z = linkage(condensed_dist, method=linkage_method)
+    Z_linkage = linkage(condensed_dist, method=linkage_method)
 
     # Get clusters
-    clusters = fcluster(Z, t=threshold, criterion=criterion)
+    clusters = fcluster(Z_linkage, t=threshold, criterion=criterion)
 
-    # Create figure
-    if labels is not None:
-        ax1: plt.Axes
-        ax2: plt.Axes
-        fig, (ax1, ax2) = plt.subplots(  # type: ignore
-            2, 1, figsize=figsize, gridspec_kw={"height_ratios": [20, 1]}
-        )
-    else:
-        fig, ax1 = plt.subplots(1, 1, figsize=figsize)
-
-    # Plot dendrogram
-    dend = dendrogram(
-        Z, ax=ax1, color_threshold=threshold if criterion == "distance" else None, no_labels=True
+    output: dict[str, Any] = dict(
+        distance_matrix=distance_matrix,
+        condensed_dist=condensed_dist,
+        Z_linkage=Z_linkage,
+        clusters=clusters,
     )
-    ax1.axhline(
-        y=threshold if criterion == "distance" else 0,
-        color="r",
-        linestyle="--",
-        label=f"{criterion}={threshold}",
-    )
-    ax1.set_ylabel("Distance (1 - Jaccard Similarity)")
-    ax1.legend()
 
-    if title:
-        ax1.set_title(title)
-    else:
-        ax1.set_title(f"Hierarchical Clustering ({linkage_method} linkage)")
-
-    # Add color bar if labels provided
-    if labels is not None:
-        # Get leaf order and create color mapping
-        leaves_order: Sequence[int] = dend["leaves"]
-        ordered_labels: list[str] = [labels[i] for i in leaves_order]
-        unique_labels: list[str] = list(np.unique(labels))
-        label_to_idx: dict[str, int] = {label: i for i, label in enumerate(unique_labels)}
-        color_indices: list[int] = [label_to_idx[label] for label in ordered_labels]
-
-        # Plot color bar
-        ax2.imshow([color_indices], aspect="auto", cmap=cmap)
-        ax2.set_xlabel("Subcomponent Module")
-        ax2.set_xticks([])
-        ax2.set_yticks([])
-
-        # Create legend
-        n_colors: int = len(unique_labels)
-        if n_colors <= 20:
-            colors = plt.cm.get_cmap(cmap)(np.linspace(0, 1, n_colors))
+    if plot:
+        # Create figure
+        if labels is not None:
+            ax1: plt.Axes
+            ax2: plt.Axes
+            fig, (ax1, ax2) = plt.subplots(  # type: ignore
+                2, 1, figsize=figsize, gridspec_kw={"height_ratios": [20, 1]}
+            )
         else:
-            colors = plt.cm.get_cmap("hsv")(np.linspace(0, 0.9, n_colors))
+            fig, ax1 = plt.subplots(1, 1, figsize=figsize)
 
-        patches: list[Patch] = [
-            Patch(color=colors[i], label=str(label)) for i, label in enumerate(unique_labels)
-        ]
+        # Plot dendrogram
+        dend = dendrogram(
+            Z_linkage, ax=ax1, color_threshold=threshold if criterion == "distance" else None, no_labels=True
+        )
+        ax1.axhline(
+            y=threshold if criterion == "distance" else 0,
+            color="r",
+            linestyle="--",
+            label=f"{criterion}={threshold}",
+        )
+        ax1.set_ylabel("Distance (1 - Jaccard Similarity)")
+        ax1.legend()
 
-        # Position legend
-        ncol: int = min(5, n_colors)  # Limit number of columns in legend
-        ax2.legend(handles=patches, loc="center", ncol=ncol, bbox_to_anchor=(0.5, -2))
+        if title:
+            ax1.set_title(title)
+        else:
+            ax1.set_title(f"Hierarchical Clustering ({linkage_method} linkage)")
 
-    plt.tight_layout()
+        # Add color bar if labels provided
+        if labels is not None:
+            # Get leaf order and create color mapping
+            leaves_order: Sequence[int] = dend["leaves"]
+            ordered_labels: list[str] = [labels[i] for i in leaves_order]
+            unique_labels: list[str] = list(np.unique(labels))
+            label_to_idx: dict[str, int] = {label: i for i, label in enumerate(unique_labels)}
+            color_indices: list[int] = [label_to_idx[label] for label in ordered_labels]
 
-    return fig, clusters, Z
+            # Plot color bar
+            ax2.imshow([color_indices], aspect="auto", cmap=cmap)
+            ax2.set_xlabel("Subcomponent Module")
+            ax2.set_xticks([])
+            ax2.set_yticks([])
+
+            # Create legend
+            n_colors: int = len(unique_labels)
+            if n_colors <= 20:
+                colors = plt.cm.get_cmap(cmap)(np.linspace(0, 1, n_colors))
+            else:
+                colors = plt.cm.get_cmap("hsv")(np.linspace(0, 0.9, n_colors))
+
+            patches: list[Patch] = [
+                Patch(color=colors[i], label=str(label)) for i, label in enumerate(unique_labels)
+            ]
+
+            # Position legend
+            ncol: int = min(5, n_colors)  # Limit number of columns in legend
+            ax2.legend(handles=patches, loc="center", ncol=ncol, bbox_to_anchor=(0.5, -2))
+
+        plt.tight_layout()
+
+        output.update(dict(
+            fig=fig,
+            labels=labels,
+        ))
+
+    return output
 
 
-def plot_clustering_from_results(
-    results: CoactivationResults,
-    group_key: str = "group_0",
+def coactivation_hierarchical_clustering(
+    results: CoactivationResultsGroup,
     threshold: float = 0.9,
     linkage_method: Literal["single", "complete", "average", "ward"] = "average",
     min_alive_counts: int = 0,
+    plot: bool = True,
     **kwargs,
 ) -> dict[str, Any]:
     """
@@ -339,31 +355,39 @@ def plot_clustering_from_results(
         Boolean mask of alive elements
     """
     # Extract data
-    jaccard_similarity = results[group_key]["jaccard"].cpu().numpy()
-    alive_mask = (results[group_key]["marginal_counts"] > min_alive_counts).cpu().numpy()
-    ground_truth = results[group_key]["labels"][alive_mask]
+    alive_mask = (results["marginal_counts"] > min_alive_counts).cpu().numpy()
+    ground_truth = results["labels"][alive_mask]
 
     # Mask similarity matrix
-    masked_similarity = jaccard_similarity[alive_mask][:, alive_mask]
+    masked_similarity = results["jaccard"].cpu().numpy()[alive_mask][:, alive_mask]
 
-    # Plot
-    fig, clusters, Z = plot_hierarchical_clustering(
+    hclust_out = hierarchical_clustering(
         masked_similarity,
         labels=ground_truth,
         threshold=threshold,
         linkage_method=linkage_method,
+        plot=plot,
         **kwargs,
     )
+    clusters = hclust_out["clusters"]
+
+    # type list[int] with -1 for inactive components
+    clusters_nomask: list[int] = list()
+    idx_mask: int = 0
+    for idk_nomask, alive in enumerate(alive_mask):
+        if alive:
+            clusters_nomask.append(clusters[idx_mask])
+            idx_mask += 1
+        else:
+            clusters_nomask.append(-1)
 
     return dict(
-        # fig, clusters, Z, alive_mask
-        fig=fig,
-        clusters=clusters,
-        Z=Z,
+        **hclust_out,
         alive_mask=alive_mask,
         n_clusters=len(np.unique(clusters)),
         cluster_sizes=np.bincount(clusters)[1:],
         n_active=alive_mask.sum().item(),
+        clusters_nomask=np.array(clusters_nomask),
     )
 
 
