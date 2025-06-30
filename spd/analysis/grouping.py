@@ -48,7 +48,7 @@ CoactivationResultsGroup = dict[
         "total_samples",
         "activation_threshold",
         "jaccard",
-        "group_masks",
+        "component_masks",
         "active_mask",
         "active_freq",
         "is_alive",
@@ -128,6 +128,8 @@ def collect_coactivations(
     samples_processed: int = 0
     data_iter: Iterable[Any] = iter(data_loader)
 
+    # TODO
+    # CRITICAL: lots of the stuff is only for the last batch!!! need it for all batches. hack for now is to use one big batch
     with tqdm(total=n_samples, desc="Collecting coactivations", unit="samples") as pbar:
         while samples_processed < n_samples:
             try:
@@ -157,11 +159,11 @@ def collect_coactivations(
             for group_idx, modules in enumerate(module_groups):
                 group_key: str = f"group_{group_idx}"
                 # Concatenate masks within group
-                group_masks = torch.cat([masks[mod] for mod in modules], dim=-1)  # [batch, group_m]
-                results[group_key]["group_masks"] = group_masks
+                component_masks = torch.cat([masks[mod] for mod in modules], dim=-1)  # [batch, group_m]
+                results[group_key]["component_masks"] = component_masks
 
                 # Apply threshold
-                active_mask = group_masks > activation_threshold  # [batch, group_m]
+                active_mask = component_masks > activation_threshold  # [batch, group_m]
                 results[group_key]["active_mask"] = active_mask
 
                 results[group_key]["active_freq"] = active_mask.sum(dim=0) / active_mask.shape[0]
@@ -402,7 +404,7 @@ def get_coactivations(
     coactivations_kwargs: dict[str, Any],
     dataset_kwargs: dict[str, Any] | None = None,
     dataloader_kwargs: dict[str, Any] | None = None,
-    device: str = "cuda" if torch.cuda.is_available() else "cpu",
+    device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
 ) -> CoactivationResults:
     # model
     comp_model: ComponentModel

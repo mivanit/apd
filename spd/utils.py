@@ -34,11 +34,16 @@ COLOR_PALETTE = [
     "#56B4E9",
 ]
 
+DeviceStr = Literal["cpu", "cuda", "mps"]
 
-def get_device() -> str:
+
+def get_device() -> DeviceStr:
     # NOTE: MPS returns NaNs on TMS when run. Avoiding for now.
     return "cuda" if torch.cuda.is_available() else "cpu"
 
+def get_device_torch() -> torch.device:
+    """Get the current device as a torch.device object."""
+    return torch.device(get_device())
 
 def set_seed(seed: int | None) -> None:
     """Set the random seed for random, PyTorch and NumPy"""
