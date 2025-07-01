@@ -485,19 +485,82 @@ def plot_merge_matrix(
 def rand_merge_mat(
     n_components: int,
     k_groups: int,
-    device: torch.device = torch.device("cpu" if not torch.cuda.is_available() else "cuda"),
+    ensure_groups_nonempty: bool = False,
+    device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
 ) -> Bool[Tensor, "k_groups n_components"]:
-    """Generate a random merge matrix with given number of components and groups."""
-    group_idxs: Int[Tensor, " n_components"] = torch.randint(
-        low=0,
-        high=k_groups,
-        size=(n_components,),
-        device=device,
-    )
+    """Generate a random boolean merge matrix indicating component-to-group assignments.
+    
+    If `ensure_groups_nonempty` is `True`, every group will contain at least one
+    component (requires `n_components >= k_groups`).
+
+    # Parameters:
+     - `n_components : int`  
+       total number of components to assign
+     - `k_groups : int`  
+       number of distinct groups
+     - `ensure_groups_nonempty : bool`  
+       when `True`, guarantees each group receives at least one component  
+       (defaults to `False`)
+     - `device : torch.device`  
+       device on which tensors are allocated  
+       (defaults to CUDA if available, else CPU)
+
+    # Returns:
+     - `Bool[Tensor, "k_groups n_components"]`  
+       boolean matrix with exactly one `True` per column:  
+       `merge_matrix[g, c]` is `True` iff component `c` belongs to group `g`
+
+    # Usage:
+
+    ```python
+    >>> mat = rand_merge_mat(10, 3, ensure_groups_nonempty=True)
+    >>> mat.sum(dim=0).eq(1).all()
+    tensor(True)
+    ```
+
+    # Raises:
+     - `ValueError` : if `ensure_groups_nonempty` is `True`
+       and `n_components < k_groups`
+    """
+    if ensure_groups_nonempty and n_components < k_groups:
+        raise ValueError(
+            "`n_components` must be at least `k_groups` when "
+            "`ensure_groups_nonempty` is True"
+        )
+
+    if ensure_groups_nonempty:
+        # assign one component per group, then randomize remaining
+        base_idxs: Int[Tensor, " k_groups"] = torch.arange(
+            k_groups, device=device
+        )
+        if n_components > k_groups:
+            extra_idxs: Int[Tensor, " n_extra"] = torch.randint(
+                low=0,
+                high=k_groups,
+                size=(n_components - k_groups,),
+                device=device,
+            )
+            group_idxs: Int[Tensor, " n_components"] = torch.cat(
+                (base_idxs, extra_idxs)
+            )
+            perm: Int[Tensor, " n_components"] = torch.randperm(
+                n_components, device=device
+            )
+            group_idxs = group_idxs[perm]
+        else:
+            group_idxs = base_idxs  # n_components == k_groups
+    else:
+        # if no guarantee, assign randomly:
+        # each component can go to any group independently, groups can be empty
+        group_idxs = torch.randint(
+            low=0,
+            high=k_groups,
+            size=(n_components,),
+            device=device,
+        )
+
     merge_matrix: Bool[Tensor, "k_groups n_components"] = torch.zeros(
-        size=(k_groups, n_components),
-        dtype=torch.bool,
-        device=device,
+        (k_groups, n_components), dtype=torch.bool, device=device
     )
     merge_matrix[group_idxs, torch.arange(n_components, device=device)] = True
     return merge_matrix
