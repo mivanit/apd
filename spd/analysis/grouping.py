@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-from jaxtyping import Float, Int
+from jaxtyping import Float, Int, Bool
 from matplotlib.patches import Patch
 from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
 from scipy.spatial.distance import squareform
@@ -449,3 +449,55 @@ def get_coactivations(
     )
 
     return coactivations
+
+
+def plot_merge_matrix(
+    merge_matrix: Bool[Tensor, "k_groups n_components"],
+    figsize: tuple[int, int] = (10, 3),
+) -> None:
+    """Plot merge matrix with row sums"""
+    
+    k_groups, n_components = merge_matrix.shape
+    group_sizes: Int[Tensor, "k_groups"] = merge_matrix.sum(dim=1)
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize, gridspec_kw={'width_ratios': [10, 1]})
+    
+    # Main matrix plot
+    ax1.imshow(merge_matrix.cpu(), aspect='auto', cmap='Blues', interpolation='nearest')
+    ax1.set_xlabel('Components')
+    ax1.set_ylabel('Groups')
+    ax1.set_title('Merge Matrix')
+    
+    # Row sums as text
+    ax2.set_xlim(0, 1)
+    ax2.set_ylim(-0.5, k_groups - 0.5)
+    ax2.invert_yaxis()
+    ax2.set_title('Row Sums')
+    ax2.axis('off')
+    
+    # Add text labels
+    for i, size in enumerate(group_sizes):
+        ax2.text(0.5, i, str(size.item()), va='center', ha='center', fontsize=12)
+    
+    plt.tight_layout()
+    plt.show()
+
+def rand_merge_mat(
+    n_components: int,
+    k_groups: int,
+    device: torch.device = torch.device("cpu" if not torch.cuda.is_available() else "cuda"),
+) -> Bool[Tensor, "k_groups n_components"]:
+    """Generate a random merge matrix with given number of components and groups."""
+    group_idxs: Int[Tensor, " n_components"] = torch.randint(
+        low=0,
+        high=k_groups,
+        size=(n_components,),
+        device=device,
+    )
+    merge_matrix: Bool[Tensor, "k_groups n_components"] = torch.zeros(
+        size=(k_groups, n_components),
+        dtype=torch.bool,
+        device=device,
+    )
+    merge_matrix[group_idxs, torch.arange(n_components, device=device)] = True
+    return merge_matrix
