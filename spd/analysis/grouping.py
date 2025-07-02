@@ -13,7 +13,9 @@ from scipy.spatial.distance import squareform
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+from muutils.dbg import dbg, dbg_tensor
 
+from spd.analysis.merge_matrix import BatchedGroupMerge
 from spd.configs import Config
 from spd.data_utils import DatasetGeneratedDataLoader
 from spd.models.component_model import ComponentModel
@@ -451,116 +453,50 @@ def get_coactivations(
     return coactivations
 
 
-def plot_merge_matrix(
-    merge_matrix: Bool[Tensor, "k_groups n_components"],
-    figsize: tuple[int, int] = (10, 3),
-) -> None:
-    """Plot merge matrix with row sums"""
+
+def compute_merge_costs(
+    activation_mask: Bool[Tensor, "n_samples n_components"],
+    bgm: BatchedGroupMerge,
+    alpha: float = 1.0,
+) -> Float[Tensor, " batch_size"]:
+    """Compute MDL costs for merge matrices (supports single matrix or batches)"""
+    # batch_shape: tuple[int, int] = tuple(merge_matrices.shape[:-2]) # type: ignore
+    batch_size: int = bgm.batch_size
+    k_groups: int = bgm.k_groups_unique
+    n_components: int = bgm.n_components
+    dbg((batch_size, k_groups, n_components))
+    dbg_tensor(activation_mask)
+    n_samples: int = activation_mask.shape[0]
+    assert activation_mask.shape[1] == n_components, f"Expected activation_mask shape (n_samples, n_components), got {activation_mask.shape = }"
+    device: torch.device = activation_mask.device
     
-    k_groups, n_components = merge_matrix.shape
-    group_sizes: Int[Tensor, "k_groups"] = merge_matrix.sum(dim=1)
+    # how many components are in each group?
+    group_ranks: Int[Tensor, "batch_size k_groups"] = torch.stack([
+        torch.bincount(x, minlength=bgm.k_groups_unique).int()
+        for x in bgm.group_idxs
+    ]).int()
+    assert group_ranks.shape == (batch_size, k_groups), f"Expected group_ranks shape {(batch_size, k_groups)}, got {group_ranks.shape}"
     
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize, gridspec_kw={'width_ratios': [10, 1]})
-    
-    # Main matrix plot
-    ax1.imshow(merge_matrix.cpu(), aspect='auto', cmap='Blues', interpolation='nearest')
-    ax1.set_xlabel('Components')
-    ax1.set_ylabel('Groups')
-    ax1.set_title('Merge Matrix')
-    
-    # Row sums as text
-    ax2.set_xlim(0, 1)
-    ax2.set_ylim(-0.5, k_groups - 0.5)
-    ax2.invert_yaxis()
-    ax2.set_title('Row Sums')
-    ax2.axis('off')
-    
-    # Add text labels
-    for i, size in enumerate(group_sizes):
-        ax2.text(0.5, i, str(size.item()), va='center', ha='center', fontsize=12)
-    
-    plt.tight_layout()
-    plt.show()
+    output: Float[Tensor, " batch_size"] = torch.full((batch_size,), torch.nan, device=device)
+    # for each merge matrix batch item
+    dbg(batch_size)
+    for b_idx in tqdm(range(batch_size)):
+        # dbg(b_idx)
+        grp_feat_samples: Float[Tensor, " k_groups"] = torch.tensor([
+            activation_mask[:, (bgm.group_idxs[b_idx] == grp)] # get components in this group
+            .max(dim=1).values # is any component from this group active for a given sample?
+            .float().mean().item() # mean number of activations across samples
+            for grp in range(k_groups) # for each group in the batch item
+        ])
 
-def rand_merge_mat(
-    n_components: int,
-    k_groups: int,
-    ensure_groups_nonempty: bool = False,
-    device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-) -> Bool[Tensor, "k_groups n_components"]:
-    """Generate a random boolean merge matrix indicating component-to-group assignments.
-    
-    If `ensure_groups_nonempty` is `True`, every group will contain at least one
-    component (requires `n_components >= k_groups`).
+        # dbg_tensor(grp_feat_samples)
+        # dbg_tensor(group_ranks[b_idx])
 
-    # Parameters:
-     - `n_components : int`  
-       total number of components to assign
-     - `k_groups : int`  
-       number of distinct groups
-     - `ensure_groups_nonempty : bool`  
-       when `True`, guarantees each group receives at least one component  
-       (defaults to `False`)
-     - `device : torch.device`  
-       device on which tensors are allocated  
-       (defaults to CUDA if available, else CPU)
+        group_costs: float = (
+            grp_feat_samples
+            @ group_ranks[b_idx].float().cpu()
+        ).item()
+        # dbg(group_costs)
+        output[b_idx] = group_costs
 
-    # Returns:
-     - `Bool[Tensor, "k_groups n_components"]`  
-       boolean matrix with exactly one `True` per column:  
-       `merge_matrix[g, c]` is `True` iff component `c` belongs to group `g`
-
-    # Usage:
-
-    ```python
-    >>> mat = rand_merge_mat(10, 3, ensure_groups_nonempty=True)
-    >>> mat.sum(dim=0).eq(1).all()
-    tensor(True)
-    ```
-
-    # Raises:
-     - `ValueError` : if `ensure_groups_nonempty` is `True`
-       and `n_components < k_groups`
-    """
-    if ensure_groups_nonempty and n_components < k_groups:
-        raise ValueError(
-            "`n_components` must be at least `k_groups` when "
-            "`ensure_groups_nonempty` is True"
-        )
-
-    if ensure_groups_nonempty:
-        # assign one component per group, then randomize remaining
-        base_idxs: Int[Tensor, " k_groups"] = torch.arange(
-            k_groups, device=device
-        )
-        if n_components > k_groups:
-            extra_idxs: Int[Tensor, " n_extra"] = torch.randint(
-                low=0,
-                high=k_groups,
-                size=(n_components - k_groups,),
-                device=device,
-            )
-            group_idxs: Int[Tensor, " n_components"] = torch.cat(
-                (base_idxs, extra_idxs)
-            )
-            perm: Int[Tensor, " n_components"] = torch.randperm(
-                n_components, device=device
-            )
-            group_idxs = group_idxs[perm]
-        else:
-            group_idxs = base_idxs  # n_components == k_groups
-    else:
-        # if no guarantee, assign randomly:
-        # each component can go to any group independently, groups can be empty
-        group_idxs = torch.randint(
-            low=0,
-            high=k_groups,
-            size=(n_components,),
-            device=device,
-        )
-
-    merge_matrix: Bool[Tensor, "k_groups n_components"] = torch.zeros(
-        (k_groups, n_components), dtype=torch.bool, device=device
-    )
-    merge_matrix[group_idxs, torch.arange(n_components, device=device)] = True
-    return merge_matrix
+    return output
