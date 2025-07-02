@@ -15,13 +15,12 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from muutils.dbg import dbg, dbg_tensor
 
-from spd.analysis.merge_matrix import BatchedGroupMerge
+from spd.analysis.merge_matrix import GroupMerge, BatchedGroupMerge
 from spd.configs import Config
 from spd.data_utils import DatasetGeneratedDataLoader
 from spd.models.component_model import ComponentModel
 from spd.models.component_utils import calc_component_acts, calc_masks
 from spd.utils import extract_batch_data
-
 
 def calc_jaccard_index(
     co_occurrence_matrix: Float[Tensor, "n n"],
@@ -454,49 +453,59 @@ def get_coactivations(
 
 
 
+def refine_coactivations(
+    coact: Float[Tensor, "k k"],
+    merges: GroupMerge,
+    active_mask_orig: Bool[Tensor, "samples n_components"],
+) -> tuple[
+    Float[Tensor, "k-1 k-1"], # new coactivation matrix
+    Bool[Tensor, "samples n-1"], # new active mask
+    Int[Tensor, " n-1"],  # new-to-old index mapping
+]:
+    """Refine co-occurrence matrix and active mask after merging two components."""
+    k: int = coact.shape[0]
+
+
+    return ()
+
+    
+
+
+
+
 def compute_merge_costs(
     activation_mask: Bool[Tensor, "n_samples n_components"],
     bgm: BatchedGroupMerge,
     alpha: float = 1.0,
 ) -> Float[Tensor, " batch_size"]:
     """Compute MDL costs for merge matrices (supports single matrix or batches)"""
-    # batch_shape: tuple[int, int] = tuple(merge_matrices.shape[:-2]) # type: ignore
-    batch_size: int = bgm.batch_size
-    k_groups: int = bgm.k_groups_unique
-    n_components: int = bgm.n_components
-    dbg((batch_size, k_groups, n_components))
-    dbg_tensor(activation_mask)
     n_samples: int = activation_mask.shape[0]
-    assert activation_mask.shape[1] == n_components, f"Expected activation_mask shape (n_samples, n_components), got {activation_mask.shape = }"
+    n_components: int = activation_mask.shape[1]
     device: torch.device = activation_mask.device
-    
-    # how many components are in each group?
-    group_ranks: Int[Tensor, "batch_size k_groups"] = torch.stack([
-        torch.bincount(x, minlength=bgm.k_groups_unique).int()
-        for x in bgm.group_idxs
-    ]).int()
-    assert group_ranks.shape == (batch_size, k_groups), f"Expected group_ranks shape {(batch_size, k_groups)}, got {group_ranks.shape}"
-    
-    output: Float[Tensor, " batch_size"] = torch.full((batch_size,), torch.nan, device=device)
-    # for each merge matrix batch item
-    dbg(batch_size)
-    for b_idx in tqdm(range(batch_size)):
-        # dbg(b_idx)
-        grp_feat_samples: Float[Tensor, " k_groups"] = torch.tensor([
-            activation_mask[:, (bgm.group_idxs[b_idx] == grp)] # get components in this group
-            .max(dim=1).values # is any component from this group active for a given sample?
-            .float().mean().item() # mean number of activations across samples
-            for grp in range(k_groups) # for each group in the batch item
-        ])
 
-        # dbg_tensor(grp_feat_samples)
-        # dbg_tensor(group_ranks[b_idx])
+    assert n_components == bgm.n_components, (
+        f"Expected activation_mask shape (*, {bgm.n_components}), "
+        f"got {activation_mask.shape}"
+    )
 
-        group_costs: float = (
-            grp_feat_samples
-            @ group_ranks[b_idx].float().cpu()
-        ).item()
-        # dbg(group_costs)
-        output[b_idx] = group_costs
+    dbg_tensor(activation_mask)
+    dbg((bgm.batch_size, bgm.k_groups_unique, n_components))
 
-    return output
+    # build membership mask and component counts per (batch, group)
+    membership: Bool[Tensor, "batch k_groups n_components"] = bgm.to_matrix(device=device)
+    group_ranks: Float[Tensor, "batch k_groups"] = membership.sum(dim=-1).to(torch.float32)
+
+    # compute per-sample group activation (logical OR over components)
+    act_bool: Bool[Tensor, "n_samples n_components"] = activation_mask.bool()
+    # shape: (batch, n_samples, k_groups)
+    group_active: Bool[Tensor, "batch n_samples k_groups"] = torch.logical_and(
+        act_bool.unsqueeze(0).unsqueeze(2),          # (1, n_samples, 1, n_components)
+        membership.unsqueeze(1)                      # (batch, 1, k_groups, n_components)
+    ).any(dim=-1)
+
+    # average activation probability per (batch, group)
+    grp_act_prob: Float[Tensor, "batch k_groups"] = group_active.float().mean(dim=1)
+
+    # final cost: weighted sum over groups
+    costs: Float[Tensor, "batch"] = (grp_act_prob * group_ranks).sum(dim=-1) * alpha
+    return costs
