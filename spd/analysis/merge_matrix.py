@@ -1,6 +1,6 @@
 import itertools
 from dataclasses import dataclass
-from typing import TypeVar, ClassVar
+from typing import Any, TypeVar, ClassVar
 
 import torch
 from jaxtyping import Bool, Int
@@ -237,7 +237,7 @@ class BatchedGroupMerge:
     def from_list(
         cls,
         merge_matrices: list[GroupMerge],
-        meta: list[dict] | None = None,
+        meta: list[dict[str, Any]] | None = None,
     ) -> "BatchedGroupMerge":
         group_idxs = torch.stack([mm.group_idxs for mm in merge_matrices], dim=0)
         k_groups = torch.tensor([mm.k_groups for mm in merge_matrices], dtype=torch.int64)
@@ -251,6 +251,11 @@ class BatchedGroupMerge:
         group_idxs = self.group_idxs[idx]
         k_groups: int = int(self.k_groups[idx].item())
         return GroupMerge(group_idxs=group_idxs, k_groups=k_groups)
+    
+    def __iter__(self):
+        """Iterate over the GroupMerge instances in the batch."""
+        for i in range(self.batch_size):
+            yield self[i]
     
     def __len__(self) -> int:
         return self.batch_size

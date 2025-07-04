@@ -452,27 +452,6 @@ def get_coactivations(
     return coactivations
 
 
-
-def refine_coactivations(
-    coact: Float[Tensor, "k k"],
-    merges: GroupMerge,
-    active_mask_orig: Bool[Tensor, "samples n_components"],
-) -> tuple[
-    Float[Tensor, "k-1 k-1"], # new coactivation matrix
-    Bool[Tensor, "samples n-1"], # new active mask
-    Int[Tensor, " n-1"],  # new-to-old index mapping
-]:
-    """Refine co-occurrence matrix and active mask after merging two components."""
-    k: int = coact.shape[0]
-
-
-    return ()
-
-    
-
-
-
-
 def compute_merge_costs(
     activation_mask: Bool[Tensor, "n_samples n_components"],
     bgm: BatchedGroupMerge,
@@ -507,5 +486,5 @@ def compute_merge_costs(
     grp_act_prob: Float[Tensor, "batch k_groups"] = group_active.float().mean(dim=1)
 
     # final cost: weighted sum over groups
-    costs: Float[Tensor, "batch"] = (grp_act_prob * group_ranks).sum(dim=-1) * alpha
+    costs: Float[Tensor, " batch"] = (grp_act_prob * group_ranks).sum(dim=-1) * alpha
     return costs
