@@ -8,7 +8,7 @@ from torch import Tensor
 
 from muutils.dbg import dbg, dbg_auto
 
-@dataclass(slots=True)
+@dataclass(kw_only=True, slots=True)
 class GroupMerge:
     """Canonical component-to-group assignment.
 
@@ -19,6 +19,7 @@ class GroupMerge:
     group_idxs: Int[Tensor, " n_components"]
     k_groups: int
     _dtype: ClassVar[torch.dtype] = torch.bool
+    old_to_new_idx: dict[int|None, int|None] | None = None
 
     @property
     def n_components(self) -> int:
@@ -105,10 +106,27 @@ class GroupMerge:
         new_idxs = self.group_idxs.clone()
         # wherever its currently b, change it to a
         new_idxs[new_idxs == group_b] = group_a
-        # wherever its currently above b, change it to b-1
+        # wherever i currently above b, change it to i-1
         new_idxs[new_idxs > group_b] -= 1
         # create a new GroupMerge instance
         merged: GroupMerge = GroupMerge(group_idxs=new_idxs, k_groups=self.k_groups - 1)
+
+        # create a mapping from old to new group indices
+        # `None` as a key is for the new group that contains both a and b
+        # values of a and b are mapped to `None` since they are merged
+        old_to_new_idx: dict[int|None, int|None] = dict()
+        for i in range(self.k_groups):
+            if i in {group_a, group_b}:
+                old_to_new_idx[i] = None
+            elif i <= group_b:
+                old_to_new_idx[i] = i
+            else:
+                old_to_new_idx[i] = i - 1
+        old_to_new_idx[None] = group_a  # the new group index for the merged group
+
+        # HACK: store the mapping in the instance for later use
+        merged.old_to_new_idx = old_to_new_idx # type: ignore[assignment]
+
         # validate the new instance
         # merged.validate(require_nonempty=True)
         return merged
