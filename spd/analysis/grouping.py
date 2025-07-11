@@ -452,39 +452,3 @@ def get_coactivations(
     return coactivations
 
 
-def compute_merge_costs(
-    activation_mask: Bool[Tensor, "n_samples n_components"],
-    bgm: BatchedGroupMerge,
-    alpha: float = 1.0,
-) -> Float[Tensor, " batch_size"]:
-    """Compute MDL costs for merge matrices (supports single matrix or batches)"""
-    n_samples: int = activation_mask.shape[0]
-    n_components: int = activation_mask.shape[1]
-    device: torch.device = activation_mask.device
-
-    assert n_components == bgm.n_components, (
-        f"Expected activation_mask shape (*, {bgm.n_components}), "
-        f"got {activation_mask.shape}"
-    )
-
-    dbg_tensor(activation_mask)
-    dbg((bgm.batch_size, bgm.k_groups_unique, n_components))
-
-    # build membership mask and component counts per (batch, group)
-    membership: Bool[Tensor, "batch k_groups n_components"] = bgm.to_matrix(device=device)
-    group_ranks: Float[Tensor, "batch k_groups"] = membership.sum(dim=-1).to(torch.float32)
-
-    # compute per-sample group activation (logical OR over components)
-    act_bool: Bool[Tensor, "n_samples n_components"] = activation_mask.bool()
-    # shape: (batch, n_samples, k_groups)
-    group_active: Bool[Tensor, "batch n_samples k_groups"] = torch.logical_and(
-        act_bool.unsqueeze(0).unsqueeze(2),          # (1, n_samples, 1, n_components)
-        membership.unsqueeze(1)                      # (batch, 1, k_groups, n_components)
-    ).any(dim=-1)
-
-    # average activation probability per (batch, group)
-    grp_act_prob: Float[Tensor, "batch k_groups"] = group_active.float().mean(dim=1)
-
-    # final cost: weighted sum over groups
-    costs: Float[Tensor, " batch"] = (grp_act_prob * group_ranks).sum(dim=-1) * alpha
-    return costs

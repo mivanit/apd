@@ -30,7 +30,8 @@ dependencies = [
     "scikit-learn",
     "umap-learn>=0.5.7",
     "muutils",
-    "js-embedding-vis"
+    "js-embedding-vis",
+    "nbconvert",
 ]
 
 [dependency-groups]
