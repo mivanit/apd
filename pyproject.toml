@@ -28,7 +28,7 @@ dependencies = [
     "numba",
     "scipy>=1.14.1",
     "scikit-learn",
-    "umap-learn>=0.5.7",
+    "umap-learn>=0.5.7",    
     "muutils",
     "js-embedding-vis",
     "nbconvert",
