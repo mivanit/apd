@@ -1,0 +1,44 @@
+batch_size: 2048
+embedding_recon_coeff: null
+image_freq: 5000
+image_on_first_step: true
+is_embed_unembed_recon: false
+layerwise_random_recon_coeff: 1.0
+layerwise_recon_coeff: null
+log_ce_losses: false
+lp_sparsity_coeff: 1.0e-05
+lr: 0.002
+lr_exponential_halflife: null
+lr_schedule: constant
+lr_warmup_pct: 0.0
+m: 100
+masked_recon_coeff: null
+n_eval_steps: 100
+n_gate_hidden_neurons: 16
+n_random_masks: 1
+out_recon_coeff: 0.0
+output_loss_type: mse
+param_match_coeff: 1.0
+pnorm: 2.0
+pretrained_model_class: spd.experiments.resid_mlp.models.ResidualMLP
+pretrained_model_name_hf: null
+pretrained_model_output_attr: null
+pretrained_model_path: notebooks/data/mlp/resid_mlp.pth
+print_freq: 100
+random_mask_recon_coeff: 1.0
+save_freq: null
+schatten_coeff: null
+seed: 0
+steps: 30000
+target_module_patterns:
+- layers.*.mlp_in
+- layers.*.mlp_out
+task_config:
+  data_generation_type: at_least_zero_active
+  feature_probability: 0.01
+  task_name: residual_mlp
+tokenizer_name: null
+unit_norm_matrices: false
+wandb_project: spd-resid-mlp
+wandb_run_name: null
+wandb_run_name_prefix: ''

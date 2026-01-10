@@ -1,0 +1,26 @@
+batch_size: 2048
+data_generation_type: at_least_zero_active
+feature_probability: 0.01
+fixed_identity_embedding: false
+fixed_random_embedding: true
+importance_val: 1.0
+label_fn_seed: 0
+label_type: act_plus_resid
+loss_type: readoff
+lr: 0.003
+lr_schedule: cosine
+n_batches_final_losses: 10
+print_freq: 100
+resid_mlp_config:
+  act_fn_name: relu
+  d_embed: 1000
+  d_mlp: 17
+  in_bias: false
+  n_features: 102
+  n_layers: 3
+  out_bias: false
+seed: 0
+steps: 10000
+synced_inputs: null
+use_trivial_label_coeffs: true
+wandb_project: spd-train-resid-mlp

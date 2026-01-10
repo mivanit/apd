@@ -33,7 +33,14 @@ from spd.models.component_utils import (
     calc_random_masks,
     component_activation_statistics,
 )
-from spd.models.components import EmbeddingComponent, Gate, GateMLP, LinearComponent
+from spd.models.components import (
+    EmbeddingComponent,
+    Gate,
+    GateMLP,
+    LinearComponent,
+    SigmoidGateMLP,
+    SwishSigmoidGateMLP,
+)
 from spd.plotting import (
     create_embed_mask_sample_table,
     plot_mask_histograms,
@@ -42,6 +49,7 @@ from spd.plotting import (
 from spd.utils import (
     calc_kl_divergence_lm,
     extract_batch_data,
+    get_annealed_p,
     get_lr_schedule_fn,
     get_lr_with_warmup,
 )
@@ -56,11 +64,15 @@ def get_common_run_name_suffix(config: Config) -> str:
     if config.random_mask_recon_coeff is not None:
         run_suffix += f"randrecon{config.random_mask_recon_coeff:.2e}_"
     run_suffix += f"p{config.pnorm:.2e}_"
+    # Add p-annealing info if actually used
+    if config.p_anneal_final_p is not None and config.p_anneal_start_frac < 1.0:
+        run_suffix += f"panneal{config.p_anneal_start_frac:.2f}-{config.p_anneal_final_p:.2e}_"
     run_suffix += f"lpsp{config.lp_sparsity_coeff:.2e}_"
     run_suffix += f"m{config.m}_"
     run_suffix += f"sd{config.seed}_"
     run_suffix += f"lr{config.lr:.2e}_"
     run_suffix += f"bs{config.batch_size}_"
+    run_suffix += f"gt{config.gate_type}_"
     return run_suffix
 
 
@@ -85,6 +97,7 @@ def optimize(
         m=config.m,
         n_gate_hidden_neurons=config.n_gate_hidden_neurons,
         pretrained_model_output_attr=config.pretrained_model_output_attr,
+        gate_type=config.gate_type,
     )
 
     for param in target_model.parameters():
@@ -92,7 +105,7 @@ def optimize(
     logger.info("Target model parameters frozen.")
 
     # We used "-" instead of "." as module names can't have "." in them
-    gates: dict[str, Gate | GateMLP] = {
+    gates: dict[str, Gate | GateMLP | SigmoidGateMLP | SwishSigmoidGateMLP] = {
         k.removeprefix("gates.").replace("-", "."): v for k, v in model.gates.items()
     }  # type: ignore
     components: dict[str, LinearComponent | EmbeddingComponent] = {
@@ -252,7 +265,15 @@ def optimize(
             loss_terms["loss/layerwise_random_reconstruction"] = layerwise_random_recon_loss.item()
 
         ####### lp sparsity loss #######
-        lp_sparsity_loss = calc_lp_sparsity_loss(sparsity_masks=sparsity_masks, pnorm=config.pnorm)
+        current_p = get_annealed_p(
+            step=step,
+            steps=config.steps,
+            initial_p=config.pnorm,
+            p_anneal_start_frac=config.p_anneal_start_frac,
+            p_anneal_final_p=config.p_anneal_final_p,
+        )
+        log_data["current_p"] = current_p
+        lp_sparsity_loss = calc_lp_sparsity_loss(sparsity_masks=sparsity_masks, pnorm=current_p)
         total_loss += config.lp_sparsity_coeff * lp_sparsity_loss
         loss_terms["loss/lp_sparsity_loss"] = lp_sparsity_loss.item()
 
@@ -381,8 +402,10 @@ def optimize(
 
                 if config.wandb_project:
                     mask_l_zero = calc_mask_l_zero(masks=masks)
+                    mask_l_zero_01 = calc_mask_l_zero(masks=masks, cutoff=0.1)
                     for layer_name, layer_mask_l_zero in mask_l_zero.items():
                         log_data[f"{layer_name}/mask_l0"] = layer_mask_l_zero
+                        log_data[f"{layer_name}/mask_l0_01"] = mask_l_zero_01[layer_name]
                     wandb.log(log_data, step=step)
 
             # --- Plotting --- #
@@ -407,24 +430,45 @@ def optimize(
                 fig_dict.update(mask_histogram_figs)
 
                 mean_component_activation_counts = component_activation_statistics(
-                    model=model, dataloader=eval_loader, n_steps=n_eval_steps, device=device
+                    model=model, dataloader=eval_loader, n_steps=n_eval_steps, device=device, cutoff=0.0
+                )[1]
+                mean_component_activation_counts_01 = component_activation_statistics(
+                    model=model, dataloader=eval_loader, n_steps=n_eval_steps, device=device, cutoff=0.1
                 )[1]
                 assert mean_component_activation_counts is not None
+                assert mean_component_activation_counts_01 is not None
                 fig_dict["mean_component_activation_counts"] = (
                     plot_mean_component_activation_counts(
                         mean_component_activation_counts=mean_component_activation_counts,
                     )
                 )
+                fig_dict["mean_component_activation_counts_01"] = (
+                    plot_mean_component_activation_counts(
+                        mean_component_activation_counts=mean_component_activation_counts_01,
+                    )
+                )
 
                 if config.wandb_project:
-                    wandb.log(
-                        {k: wandb.Image(v) for k, v in fig_dict.items()},
-                        step=step,
-                    )
+                    # Separate figures from other metrics in fig_dict
+                    images_dict = {}
+                    metrics_dict = {}
+                    for k, v in fig_dict.items():
+                        try:
+                            images_dict[k] = wandb.Image(v)
+                        except:
+                            metrics_dict[k] = v
+                    
+                    # Log images and metrics together
+                    log_dict = {**images_dict, **metrics_dict}
+                    wandb.log(log_dict, step=step)
+                    
                     if out_dir is not None:
                         for k, v in fig_dict.items():
-                            v.savefig(out_dir / f"{k}_{step}.png")
-                            tqdm.write(f"Saved plot to {out_dir / f'{k}_{step}.png'}")
+                            try:
+                                v.savefig(out_dir / f"{k}_{step}.png")
+                                tqdm.write(f"Saved plot to {out_dir / f'{k}_{step}.png'}")
+                            except:
+                                pass  # Skip non-figure items
 
         # --- Saving Checkpoint --- #
         if (
